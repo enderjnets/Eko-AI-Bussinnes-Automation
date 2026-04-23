@@ -5,6 +5,7 @@ from app.models.lead import Lead
 from app.schemas.lead import LeadEnrichment
 from app.utils.ai_client import generate_completion
 from app.agents.research.analyzers.website import WebsiteAnalyzer
+from app.services.paperclip import on_research_complete
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,18 @@ class ResearchAgent:
             enrichment.scoring_reason = ai_analysis.get("scoring_reason", "")
         except Exception as e:
             logger.error(f"AI analysis failed: {e}")
+        
+        # Paperclip: log research completion
+        try:
+            on_research_complete(
+                lead_id=lead.id,
+                business_name=lead.business_name,
+                urgency_score=enrichment.urgency_score or 0,
+                fit_score=enrichment.fit_score or 0,
+                pain_points=enrichment.pain_points,
+            )
+        except Exception:
+            pass
         
         return enrichment
     

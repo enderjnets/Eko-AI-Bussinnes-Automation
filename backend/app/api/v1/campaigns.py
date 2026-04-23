@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import get_db
 from app.models.campaign import Campaign, CampaignStatus
 from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignResponse, CampaignLaunchRequest
+from app.services.paperclip import on_campaign_launched
 
 router = APIRouter()
 
@@ -80,6 +81,18 @@ async def launch_campaign(
     campaign.status = CampaignStatus.ACTIVE
     await db.commit()
     await db.refresh(campaign)
+    
+    # Paperclip: log campaign launch
+    try:
+        on_campaign_launched(
+            campaign_id=campaign.id,
+            campaign_name=campaign.name,
+            target_city=campaign.target_city or "Unknown",
+            lead_count=campaign.leads_total,
+        )
+    except Exception:
+        pass
+    
     return campaign
 
 

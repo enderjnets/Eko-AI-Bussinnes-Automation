@@ -2,6 +2,7 @@ from typing import List, Dict, Optional
 import logging
 
 from app.agents.discovery.sources.google_maps import GoogleMapsSource
+from app.services.paperclip import on_discovery_complete
 
 logger = logging.getLogger(__name__)
 
@@ -77,4 +78,16 @@ class DiscoveryAgent:
                 unique_leads.append(lead)
         
         logger.info(f"DiscoveryAgent: {len(unique_leads)} unique leads found")
+        
+        # Paperclip: log discovery run
+        try:
+            on_discovery_complete(
+                query=query,
+                city=city,
+                leads_found=len(all_leads),
+                leads_created=len(unique_leads),
+            )
+        except Exception:
+            pass  # Never break main flow
+        
         return unique_leads

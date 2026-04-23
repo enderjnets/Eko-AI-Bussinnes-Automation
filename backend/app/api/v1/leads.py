@@ -8,6 +8,7 @@ from app.models.lead import Lead, LeadStatus
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadListResponse, DiscoveryRequest
 from app.agents.discovery.agent import DiscoveryAgent
 from app.agents.research.agent import ResearchAgent
+from app.services.paperclip import on_lead_status_change, on_system_alert
 
 router = APIRouter()
 
@@ -116,6 +117,7 @@ async def enrich_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
     for field, value in enriched.model_dump(exclude_unset=True).items():
         setattr(lead, field, value)
     
+    old_status = lead.status.value
     if lead.urgency_score and lead.fit_score:
         lead.total_score = (lead.urgency_score + lead.fit_score) / 2
         lead.status = LeadStatus.SCORED
@@ -124,6 +126,18 @@ async def enrich_lead(lead_id: int, db: AsyncSession = Depends(get_db)):
     
     await db.commit()
     await db.refresh(lead)
+    
+    # Paperclip: log status change
+    try:
+        on_lead_status_change(
+            lead_id=lead.id,
+            business_name=lead.business_name,
+            old_status=old_status,
+            new_status=lead.status.value,
+        )
+    except Exception:
+        pass
+    
     return lead
 
 

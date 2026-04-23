@@ -6,6 +6,7 @@ import resend
 from app.config import get_settings
 from app.models.lead import Lead
 from app.utils.ai_client import generate_completion
+from app.services.paperclip import on_email_sent, on_email_error
 
 settings = get_settings()
 resend.api_key = settings.RESEND_API_KEY
@@ -98,6 +99,8 @@ Return ONLY a JSON object with:
         subject: str,
         body: str,
         lead_id: Optional[int] = None,
+        business_name: str = "",
+        ai_generated: bool = True,
     ) -> dict:
         """
         Send an email via Resend.
@@ -116,9 +119,34 @@ Return ONLY a JSON object with:
             
             response = resend.Emails.send(params)
             logger.info(f"Email sent to {to_email}: {response.get('id')}")
+            
+            # Paperclip: log email sent
+            try:
+                on_email_sent(
+                    lead_id=lead_id or 0,
+                    business_name=business_name,
+                    email=to_email,
+                    subject=subject,
+                    ai_generated=ai_generated,
+                )
+            except Exception:
+                pass
+            
             return response
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {e}")
+            
+            # Paperclip: log email error
+            try:
+                on_email_error(
+                    lead_id=lead_id or 0,
+                    business_name=business_name,
+                    email=to_email,
+                    error=str(e),
+                )
+            except Exception:
+                pass
+            
             raise
     
     async def generate_and_send(
@@ -134,6 +162,8 @@ Return ONLY a JSON object with:
             subject=email_data["subject"],
             body=email_data["body"],
             lead_id=lead.id,
+            business_name=lead.business_name,
+            ai_generated=True,
         )
         
         return response

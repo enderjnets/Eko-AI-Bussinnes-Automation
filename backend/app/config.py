@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     MAX_CONTACT_ATTEMPTS: int = 5
     COOLDOWN_HOURS_BETWEEN_CONTACTS: int = 72
 
+    # Paperclip — AI Company Control Plane
+    PAPERCLIP_API_URL: str = "http://100.88.47.99:3100"
+    PAPERCLIP_COMPANY_ID: str = "a5151f95-51cd-4d2d-a35b-7d7cb4f4102e"
+    PAPERCLIP_API_KEY: str = ""
+
     @property
     def is_development(self) -> bool:
         return self.ENVIRONMENT == "development"
