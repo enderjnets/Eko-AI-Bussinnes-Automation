@@ -58,15 +58,25 @@ class TestYelpSource:
             "name": "Yelp Biz",
             "rating": 4.5,
             "review_count": 120,
-            "category": "Coffee",
-            "address": "789 Pine St",
-            "phone": "555-5678",
-            "yelp_url": "https://yelp.com/biz/test",
+            "phone": "+15551234567",
+            "display_phone": "(555) 123-4567",
+            "url": "https://yelp.com/biz/test",
+            "categories": [{"alias": "coffee", "title": "Coffee & Tea"}],
+            "location": {
+                "display_address": ["789 Pine St", "Denver, CO 80202"],
+                "city": "Denver",
+                "state": "CO",
+                "zip_code": "80202",
+                "country": "US",
+            },
+            "coordinates": {"latitude": 39.7, "longitude": -104.9},
         }
         result = source._normalize_business(biz)
         assert result["business_name"] == "Yelp Biz"
-        assert result["category"] == "Coffee"
-        assert result["phone"] == "555-5678"
+        assert result["category"] == "Coffee & Tea"
+        assert result["phone"] == "+15551234567"
+        assert result["city"] == "Denver"
+        assert result["state"] == "CO"
         assert result["source"] == "yelp"
         assert "4.5 stars" in result["description"]
 
@@ -75,27 +85,11 @@ class TestYelpSource:
         result = source._normalize_business({"rating": 5.0})
         assert result is None
 
-    def test_parse_card_valid(self):
-        source = YelpSource()
-        from bs4 import BeautifulSoup
-        html = '''
-        <div>
-            <a class="css-19v1rkv" href="/biz/test-biz">Test Biz</a>
-            <p class="css-1p8aobs">Italian</p>
-        </div>
-        '''
-        card = BeautifulSoup(html, "html.parser").div
-        result = source._parse_card(card)
-        assert result is not None
-        assert result["name"] == "Test Biz"
-
-    def test_parse_card_no_name(self):
-        source = YelpSource()
-        from bs4 import BeautifulSoup
-        html = "<div><p>No business here</p></div>"
-        card = BeautifulSoup(html, "html.parser").div
-        result = source._parse_card(card)
-        assert result is None
+    def test_no_api_key_returns_empty(self):
+        source = YelpSource(api_key="")
+        import asyncio
+        result = asyncio.run(source.search("restaurants", "Denver"))
+        assert result == []
 
 
 class TestDiscoveryAgent:

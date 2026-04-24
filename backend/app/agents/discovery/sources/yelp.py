@@ -1,28 +1,31 @@
-"""Discovery source using Yelp search scraping."""
+"""Discovery source using Yelp Fusion API (official, free tier available)."""
 
 from typing import List, Dict, Optional
 import logging
+
 import httpx
-from bs4 import BeautifulSoup
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+YELP_FUSION_BASE_URL = "https://api.yelp.com/v3"
+
 
 class YelpSource:
-    """Discovery source using Yelp search page scraping."""
+    """Discovery source using Yelp Fusion API.
 
-    def __init__(self):
+    Get a free API key at: https://www.yelp.com/developers/v3/manage_app
+    Free tier: 500 requests/day.
+    """
+
+    def __init__(self, api_key: Optional[str] = None):
+        settings = get_settings()
+        self.api_key = api_key or settings.YELP_API_KEY or ""
         self.client = httpx.AsyncClient(
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                ),
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-            timeout=15.0,
-            follow_redirects=True,
+            base_url=YELP_FUSION_BASE_URL,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            headers={"Authorization": f"Bearer {self.api_key}"},
         )
 
     async def search(
@@ -34,146 +37,91 @@ class YelpSource:
         max_results: int = 50,
     ) -> List[Dict]:
         """Search for businesses on Yelp."""
-        search_query = f"{query} in {city}, {state}"
-        logger.info(f"Yelp discovery: {search_query}")
+        if not self.api_key:
+            logger.warning("Yelp Fusion API key not configured. Get one free at https://www.yelp.com/developers/v3/manage_app")
+            return []
+
+        location = f"{city}, {state}"
+        radius_meters = min(int(radius_miles * 1609.34), 40000)  # Max 40km
+        limit = min(max_results, 50)  # Yelp max per request
+
+        logger.info(f"Yelp Fusion search: '{query}' in {location}")
 
         try:
-            results = await self._scrape_search(query, city, state, max_results)
+            resp = await self.client.get(
+                "/businesses/search",
+                params={
+                    "term": query,
+                    "location": location,
+                    "radius": radius_meters,
+                    "limit": limit,
+                    "sort_by": "best_match",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            businesses = data.get("businesses", [])
         except Exception as e:
-            logger.warning(f"Yelp scraping failed: {e}")
+            logger.error(f"Yelp Fusion API error: {e}")
             return []
 
         leads = []
-        for biz in results:
+        for biz in businesses:
             lead = self._normalize_business(biz)
             if lead:
                 leads.append(lead)
 
-        logger.info(f"Found {len(leads)} leads from Yelp")
+        logger.info(f"Yelp Fusion returned {len(leads)} leads")
         return leads
 
-    async def _scrape_search(
-        self, query: str, city: str, state: str, max_results: int
-    ) -> List[Dict]:
-        """Scrape Yelp search results page."""
-        url = "https://www.yelp.com/search"
-        params = {
-            "find_desc": query,
-            "find_loc": f"{city}, {state}",
-            "start": 0,
-        }
-
-        resp = await self.client.get(url, params=params)
-        resp.raise_for_status()
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        businesses = []
-
-        # Yelp uses various markup patterns; try several selectors
-        containers = soup.select("[data-testid='serp-ia-card']")
-        if not containers:
-            containers = soup.select(".y__1dc2i5d")
-        if not containers:
-            containers = soup.select("[class*='container']:has(h3)")
-
-        for card in containers[:max_results]:
-            biz = self._parse_card(card)
-            if biz:
-                businesses.append(biz)
-
-        return businesses
-
-    def _parse_card(self, card: BeautifulSoup) -> Optional[Dict]:
-        """Extract business data from a Yelp search card."""
-        # Try multiple selectors for business name
-        name_tag = (
-            card.select_one("a.css-19v1rkv")
-            or card.select_one("a.css-1422juy")
-            or card.select_one("h3 a")
-            or card.select_one("a[href*='/biz/']")
-        )
-        if not name_tag:
-            return None
-
-        name = name_tag.get_text(strip=True)
-        href = name_tag.get("href", "")
-        if href.startswith("/"):
-            href = f"https://www.yelp.com{href}"
-
-        # Rating and review count
-        rating_tag = card.select_one("[aria-label*='star rating']")
-        rating = None
-        review_count = None
-        if rating_tag:
-            aria = rating_tag.get("aria-label", "")
-            # e.g. "4.5 star rating"
-            try:
-                rating = float(aria.split()[0])
-            except (ValueError, IndexError):
-                pass
-
-        review_tag = card.select_one("span.css-chan6m")
-        if review_tag:
-            text = review_tag.get_text(strip=True)
-            if "review" in text.lower():
-                try:
-                    review_count = int(text.split()[0])
-                except (ValueError, IndexError):
-                    pass
-
-        # Category
-        category_tag = card.select_one("p.css-1p8aobs") or card.select_one("p.css-16lqlh0")
-        category = category_tag.get_text(strip=True) if category_tag else ""
-
-        # Address / neighborhood
-        address_tag = (
-            card.select_one("p.css-1p8aobs + p")
-            or card.select_one("span.css-chan6m + span")
-        )
-        address = address_tag.get_text(strip=True) if address_tag else ""
-
-        # Phone
-        phone_tag = card.select_one("p.css-1h1j0y3")
-        phone = phone_tag.get_text(strip=True) if phone_tag else ""
-
-        return {
-            "name": name,
-            "yelp_url": href,
-            "rating": rating,
-            "review_count": review_count,
-            "category": category,
-            "address": address,
-            "phone": phone,
-        }
-
     def _normalize_business(self, biz: Dict) -> Optional[Dict]:
-        """Normalize Yelp business data to Lead format."""
+        """Normalize Yelp Fusion business data to Lead format."""
         name = biz.get("name", "").strip()
         if not name:
             return None
 
-        # Build description from rating/reviews
-        parts = []
-        if biz.get("rating"):
-            parts.append(f"{biz['rating']} stars on Yelp")
-        if biz.get("review_count"):
-            parts.append(f"{biz['review_count']} reviews")
-        description = " | ".join(parts) if parts else ""
+        # Location
+        location = biz.get("location", {})
+        address_parts = location.get("display_address", [])
+        address = ", ".join(address_parts) if address_parts else None
+        city = location.get("city") or None
+        state = location.get("state") or None
+        zip_code = location.get("zip_code") or None
+        country = location.get("country") or "US"
+
+        # Coordinates
+        coordinates = biz.get("coordinates", {})
+        latitude = coordinates.get("latitude")
+        longitude = coordinates.get("longitude")
+
+        # Categories
+        categories = biz.get("categories", [])
+        category = categories[0].get("title") if categories else None
+
+        # Rating / reviews
+        rating = biz.get("rating")
+        review_count = biz.get("review_count")
+        description_parts = []
+        if rating is not None:
+            description_parts.append(f"{rating} stars on Yelp")
+        if review_count:
+            description_parts.append(f"{review_count} reviews")
+        description = " | ".join(description_parts) if description_parts else None
 
         return {
             "business_name": name,
-            "category": biz.get("category") or None,
-            "description": description or None,
+            "category": category,
+            "description": description,
             "email": None,
-            "phone": biz.get("phone") or None,
-            "website": biz.get("yelp_url") or None,
-            "address": biz.get("address") or None,
-            "city": None,
-            "state": None,
-            "zip_code": None,
-            "country": "US",
-            "latitude": None,
-            "longitude": None,
+            "phone": biz.get("phone") or biz.get("display_phone") or None,
+            "website": biz.get("url") or None,
+            "address": address,
+            "city": city,
+            "state": state,
+            "zip_code": zip_code,
+            "country": country,
+            "latitude": latitude,
+            "longitude": longitude,
             "source": "yelp",
             "source_data": biz,
         }

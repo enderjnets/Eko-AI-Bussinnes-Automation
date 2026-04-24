@@ -1,22 +1,41 @@
-"""Discovery source using Apify LinkedIn company scraper."""
+"""Discovery source using LinkedIn via Apify + DuckDuckGo fallback."""
 
 from typing import List, Dict, Optional
 import logging
+import urllib.parse
+
+import httpx
+from bs4 import BeautifulSoup
 
 from app.services.apify import ApifyClient
 
 logger = logging.getLogger(__name__)
 
-# Default Apify actor for LinkedIn company search
-DEFAULT_LINKEDIN_ACTOR = "apify/linkedin-company-scraper"
+DEFAULT_LINKEDIN_ACTOR = "harvestapi/linkedin-company"
+DUCKDUCKGO_HTML_URL = "https://html.duckduckgo.com/html/"
+LINKEDIN_PUBLIC_URL = "https://www.linkedin.com/company/"
 
 
 class LinkedInSource:
-    """Discovery source using LinkedIn via Apify actor."""
+    """Discovery source for LinkedIn companies.
+
+    Primary: Apify actor (requires HarvestAPI token — may not work on free tier).
+    Fallback: DuckDuckGo search for LinkedIn company pages + public page scraping.
+    """
 
     def __init__(self, actor_id: Optional[str] = None):
-        self.client = ApifyClient()
+        self.apify = ApifyClient()
         self.actor_id = actor_id or DEFAULT_LINKEDIN_ACTOR
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+            },
+        )
 
     async def search(
         self,
@@ -27,23 +46,36 @@ class LinkedInSource:
         max_results: int = 50,
     ) -> List[Dict]:
         """Search for companies on LinkedIn."""
-        search_terms = f"{query} {city}"
-        logger.info(f"LinkedIn discovery: {search_terms}")
+        logger.info(f"LinkedIn discovery: {query} in {city}")
 
+        # Try Apify actor first
         try:
-            results = await self.client.run_actor(
-                actor_id=self.actor_id,
-                run_input={
-                    "searchTerms": [search_terms],
-                    "location": f"{city}, {state}, United States",
-                    "maxResults": min(max_results, 100),
-                },
-                wait_for_finish=True,
-                max_wait_seconds=60,
-            )
+            if self.apify.api_key:
+                results = await self._search_apify(query, city, max_results)
+                if results:
+                    return results
         except Exception as e:
-            logger.warning(f"LinkedIn/Apify discovery failed: {e}")
-            return []
+            logger.warning(f"LinkedIn Apify failed: {e}")
+
+        # Fallback: DuckDuckGo search for LinkedIn company pages
+        try:
+            return await self._search_duckduckgo(query, city, max_results)
+        except Exception as e:
+            logger.warning(f"LinkedIn DuckDuckGo fallback failed: {e}")
+
+        return []
+
+    async def _search_apify(self, query: str, city: str, max_results: int) -> List[Dict]:
+        """Search via Apify actor."""
+        results = await self.apify.run_actor(
+            actor_id=self.actor_id,
+            run_input={
+                "companyNames": [query],
+                "maxResults": min(max_results, 100),
+            },
+            wait_for_finish=True,
+            max_wait_seconds=60,
+        )
 
         leads = []
         for company in results:
@@ -51,8 +83,100 @@ class LinkedInSource:
             if lead:
                 leads.append(lead)
 
-        logger.info(f"Found {len(leads)} leads from LinkedIn")
+        logger.info(f"LinkedIn (Apify) returned {len(leads)} leads")
         return leads
+
+    async def _search_duckduckgo(self, query: str, city: str, max_results: int) -> List[Dict]:
+        """Search LinkedIn company pages via DuckDuckGo + scrape public pages."""
+        search_query = f"site:linkedin.com/company {query} {city}"
+        logger.info(f"LinkedIn DuckDuckGo search: {search_query}")
+
+        resp = await self.client.post(
+            DUCKDUCKGO_HTML_URL,
+            data={"q": search_query, "kl": "us-en"},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        resp.raise_for_status()
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = soup.select(".result")
+
+        leads = []
+        for result in results[:max_results]:
+            link_tag = result.select_one(".result__a")
+            if not link_tag:
+                continue
+
+            href = link_tag.get("href", "")
+            if "linkedin.com/company/" not in href:
+                continue
+
+            company_slug = href.split("linkedin.com/company/")[-1].split("/")[0].split("?")[0]
+            if not company_slug:
+                continue
+
+            # Try to scrape public LinkedIn page for basic info
+            company_data = await self._scrape_linkedin_public(company_slug)
+            if company_data:
+                lead = self._normalize_company(company_data)
+                if lead:
+                    leads.append(lead)
+
+        logger.info(f"LinkedIn (DuckDuckGo) returned {len(leads)} leads")
+        return leads
+
+    async def _scrape_linkedin_public(self, company_slug: str) -> Optional[Dict]:
+        """Scrape public LinkedIn company page for basic metadata."""
+        url = f"{LINKEDIN_PUBLIC_URL}{company_slug}/about/"
+        try:
+            resp = await self.client.get(url, follow_redirects=True)
+            if resp.status_code != 200:
+                return None
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # Try to extract data from meta tags
+            title_tag = soup.find("title")
+            title = title_tag.get_text(strip=True) if title_tag else company_slug
+            title = title.replace(" | LinkedIn", "").strip()
+
+            desc_tag = soup.find("meta", attrs={"name": "description"})
+            description = desc_tag.get("content") if desc_tag else None
+
+            # Look for JSON-LD or embedded data
+            scripts = soup.find_all("script", type="application/ld+json")
+            for script in scripts:
+                try:
+                    import json
+                    data = json.loads(script.string)
+                    if isinstance(data, dict) and data.get("@type") == "Organization":
+                        return {
+                            "companyName": data.get("name", title),
+                            "about": data.get("description", description),
+                            "website": data.get("url"),
+                            "industry": data.get("industry"),
+                            "linkedinUrl": f"https://www.linkedin.com/company/{company_slug}/",
+                            "employeeCount": data.get("numberOfEmployees"),
+                            "city": None,
+                            "state": None,
+                        }
+                except Exception:
+                    continue
+
+            # Fallback: return minimal data from title/meta
+            return {
+                "companyName": title,
+                "about": description,
+                "linkedinUrl": f"https://www.linkedin.com/company/{company_slug}/",
+                "industry": None,
+                "website": None,
+                "employeeCount": None,
+                "city": None,
+                "state": None,
+            }
+        except Exception as e:
+            logger.debug(f"LinkedIn public scrape failed for {company_slug}: {e}")
+            return None
 
     def _normalize_company(self, company: Dict) -> Optional[Dict]:
         """Normalize LinkedIn company data to Lead format."""

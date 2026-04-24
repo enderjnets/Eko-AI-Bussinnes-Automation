@@ -33,6 +33,7 @@ class Settings(BaseSettings):
 
     OUTSCRAPER_API_KEY: str = ""
     APIFY_API_KEY: str = ""
+    YELP_API_KEY: str = ""
 
     # Phase 3: Voice
     RETELL_API_KEY: str = ""
