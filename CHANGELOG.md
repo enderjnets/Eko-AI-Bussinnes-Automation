@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.3.0] — 2026-04-24
+
+### Fase 2 Complete: Email Outreach + CRM Pipeline + Sequences
+
+#### Celery Scheduled Tasks (Implemented)
+- **`process_follow_ups`** — Hourly task: finds leads with `next_follow_up_at <= now`, sends AI-generated follow-up emails, records interactions, respects rate limits and cooldowns
+- **`enrich_pending_leads`** — Every 30 min: auto-enriches `DISCOVERED` leads via `ResearchAgent`, auto-scores and transitions to `ENRICHED`/`SCORED`
+- **`sync_dnc_registry`** — Monthly: marks leads with 3+ bounces as `do_not_contact`, archives opt-outs older than 2 years (CPA Colorado compliance)
+- **`generate_daily_report`** — Daily at 8am MT: pipeline summary, new leads, emails sent, conversion rate; logged to Paperclip
+
+#### Email Sequences (Drip Campaigns)
+- New models: `EmailSequence`, `SequenceStep`, `SequenceEnrollment`
+- New API: `GET/POST/PATCH /api/v1/sequences`, steps CRUD, enroll leads, execute sequences
+- Sequence step types: `email`, `wait`, `condition`, `sms`, `call`
+- Dry-run mode for testing sequences before live execution
+- Auto-advances enrolled leads through steps with configurable delays
+
+#### Infrastructure
+- Added `celery-beat` service to `docker-compose.yml` with scheduled tasks
+- `celery_app.py` now includes `beat_schedule` with all 4 tasks
+- Added missing env vars to docker-compose: `YELP_API_KEY`, `SERPAPI_API_KEY`, `PAPERCLIP_API_KEY`, `CORS_ORIGINS`
+
+#### Tests
+- `tests/test_scheduled.py` — Celery task wrappers and async helpers
+- `tests/test_sequences.py` — Sequence schemas, models, and API logic
+
+---
+
 ## [0.2.0] — 2026-04-24
 
 ### Fase 1 Complete: Discovery + Research + Dashboard

@@ -45,6 +45,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
+      - YELP_API_KEY=${YELP_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
       - ENVIRONMENT=${ENVIRONMENT:-development}
     ports:
@@ -70,6 +74,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
+      - YELP_API_KEY=${YELP_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
       - ENVIRONMENT=${ENVIRONMENT:-development}
     volumes:
@@ -80,6 +88,33 @@ services:
       redis:
         condition: service_healthy
     command: celery -A app.tasks.celery_app worker --loglevel=info
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eko-celery-beat
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-eko}:${POSTGRES_PASSWORD:-eko_dev_pass}@db:5432/${POSTGRES_DB:-eko_ai}
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
+      - YELP_API_KEY=${YELP_API_KEY}
+      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
+      - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.tasks.celery_app beat --loglevel=info
 
   frontend:
     build:

@@ -1,35 +1,54 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-24  
-**Current version**: 0.2.0  
-**Current phase**: Fase 1 ✅ Complete
+**Current version**: 0.3.0  
+**Current phase**: Fase 2 ✅ Complete
 
 ---
 
 ## What was done (this session)
 
-### Fase 1: Discovery + Research + Dashboard — COMPLETED
+### Fase 2: Email Outreach + CRM Pipeline + Sequences — COMPLETED
 
 #### Code changes
-- **4 new discovery sources**: Google Maps, Yelp, LinkedIn (Apify), Colorado SOS (Socrata API)
-- **Semantic search**: pgvector + OpenAI embeddings endpoint + auto-generation
-- **Frontend improvements**: Source toggles, semantic search mode, removed reload anti-pattern
-- **CORS**: Configurable via `CORS_ORIGINS` env var
-- **Tests**: `test_discovery.py` + `test_research.py`
+- **Celery scheduled tasks** (4 tasks implemented, previously all `pass` stubs):
+  - `process_follow_ups` — Hourly auto-follow-up engine
+  - `enrich_pending_leads` — Every 30 min auto-enrichment
+  - `sync_dnc_registry` — Monthly bounce/DNC cleanup
+  - `generate_daily_report` — Daily 8am MT analytics report
+- **Email Sequences** (drip campaigns):
+  - New models: `EmailSequence`, `SequenceStep`, `SequenceEnrollment`
+  - New API: CRUD sequences, steps, enrollments, execute with dry-run
+  - Step types: email, wait, condition, sms, call
+- **Docker Compose**: Added `celery-beat` service, missing env vars
+- **Celery beat schedule**: All 4 tasks scheduled in `celery_app.py`
+
+#### Tests
+- `tests/test_scheduled.py` — Celery task wrappers + async helpers
+- `tests/test_sequences.py` — Sequence schemas, models, API
 
 #### Infra changes
-- `beautifulsoup4` added to requirements
-- `ApifyClient` service created
-- `CHANGELOG.md` created
-- Version bumped: 0.1.0 → 0.2.0
+- `docker-compose.yml`: Added `celery-beat`, `YELP_API_KEY`, `SERPAPI_API_KEY`, `PAPERCLIP_API_KEY`, `CORS_ORIGINS`
+- `celery_app.py`: Added `beat_schedule` configuration
 
 #### Git
-- Commits: `1c26f04`, `b9f0de5`
-- Pushed to `origin/main`
+- Version bumped: 0.2.0 → 0.3.0
+- CHANGELOG.md updated
 
 #### Paperclip
-- Issue **EKO-11** created: `Fase 1 Complete — Discovery + Research + Dashboard`
+- Issue **EKO-16** created: `Fase 2 Complete — Email Outreach + CRM Pipeline + Sequences`
 - Status: `done`
+
+---
+
+## What was done (previous session)
+
+### Fase 1: Discovery + Research + Dashboard — COMPLETED
+
+- 4 discovery sources: Google Maps, Yelp, LinkedIn, Colorado SOS
+- Semantic search with pgvector + OpenAI embeddings
+- Frontend improvements: source toggles, semantic search, reactive refresh
+- `test_discovery.py` + `test_research.py`
 
 ---
 
@@ -38,19 +57,20 @@
 ### Blockers for production
 | Item | Status | Notes |
 |------|--------|-------|
-| Colorado SOS | ✅ Working | Official Open Data API — live tested with real data |
-| Yelp Fusion | ✅ Working | Live tested with real phones, addresses, ratings, GPS |
-| LinkedIn (SerpApi) | ✅ Working | Live tested with 10 real company URLs and descriptions |
+| Colorado SOS | ✅ Working | Official Open Data API |
+| Yelp Fusion | ✅ Working | 500 req/day free tier |
+| LinkedIn (SerpApi) | ✅ Working | 100 searches/month free tier |
 | Google Maps | ⏳ Deferred | Outscraper requires payment. Deferred to later phase |
 | Docker | ⚠️ Down | Colima/Docker Desktop not running locally |
 | pytest | ⚠️ Blocked | Python 3.14 incompatible with pydantic-core wheels |
+| OpenAI API Key | ❌ Placeholder | Required for enrichment, embeddings, AI email gen |
+| Resend API Key | ❌ Placeholder | Required for actual email delivery |
 
-### Next priorities (Fase 2)
-1. ⏳ Google Maps — Outscraper (requires payment, deferred)
-2. Implement Celery scheduled tasks (currently all `pass` stubs)
-3. Add SMS/Voice outreach channels
-4. Authentication system (JWT)
-5. Production deployment hardening
+### Next priorities (Fase 3)
+1. Voice AI integration (Retell / Vapi)
+2. Calendar integration (Cal.com webhooks already exist)
+3. Authentication system (JWT)
+4. Production deployment hardening
 
 ---
 
