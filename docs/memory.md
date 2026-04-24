@@ -38,18 +38,19 @@
 ### Blockers for production
 | Item | Status | Notes |
 |------|--------|-------|
-| Yelp scraping | ❌ Blocked | Cloudflare 403. Needs Yelp Fusion API key or Apify actor debug |
-| LinkedIn actor | ⚠️ Unvalidated | Apify actor exists but input schema not confirmed |
-| Outscraper key | ❓ Unknown | Google Maps source assumed OK but not tested live |
+| Colorado SOS | ✅ Working | Official Open Data API — live tested with real data |
+| Yelp Fusion | ✅ Working | Live tested with real phones, addresses, ratings, GPS |
+| LinkedIn (SerpApi) | ✅ Working | Live tested with 10 real company URLs and descriptions |
+| Google Maps | ⏳ Deferred | Outscraper requires payment. Deferred to later phase |
 | Docker | ⚠️ Down | Colima/Docker Desktop not running locally |
 | pytest | ⚠️ Blocked | Python 3.14 incompatible with pydantic-core wheels |
 
 ### Next priorities (Fase 2)
-1. ✅ Fix Yelp — Fusion API client implemented. Needs `YELP_API_KEY` (free at yelp.com/developers)
-2. ✅ Fix LinkedIn — Apify primary + DuckDuckGo fallback implemented
-3. Implement Celery scheduled tasks (currently all `pass` stubs)
-4. Add SMS/Voice outreach channels
-5. Authentication system (JWT)
+1. ⏳ Google Maps — Outscraper (requires payment, deferred)
+2. Implement Celery scheduled tasks (currently all `pass` stubs)
+3. Add SMS/Voice outreach channels
+4. Authentication system (JWT)
+5. Production deployment hardening
 
 ---
 
