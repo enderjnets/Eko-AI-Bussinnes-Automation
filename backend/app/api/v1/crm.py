@@ -30,6 +30,27 @@ VALID_TRANSITIONS = {
 }
 
 
+# Rate limiting: max 5 contacts per lead per day
+MAX_CONTACTS_PER_DAY = 5
+
+
+async def _check_contact_rate_limit(lead: Lead, db: AsyncSession) -> bool:
+    """Check if lead has been contacted too many times today."""
+    from sqlalchemy import and_
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    result = await db.execute(
+        select(func.count(Interaction.id))
+        .where(and_(
+            Interaction.lead_id == lead.id,
+            Interaction.interaction_type == "email",
+            Interaction.created_at >= today_start,
+        ))
+    )
+    count = result.scalar() or 0
+    return count < MAX_CONTACTS_PER_DAY
+
+
 @router.post("/{lead_id}/transition")
 async def transition_lead(
     lead_id: int,
@@ -94,7 +115,7 @@ async def transition_lead(
 @router.post("/{lead_id}/contact")
 async def contact_lead(
     lead_id: int,
-    channel: str = "email",  # email, sms, call
+    channel: str = "email",
     template: Optional[str] = None,
     custom_subject: Optional[str] = None,
     custom_body: Optional[str] = None,
@@ -111,6 +132,13 @@ async def contact_lead(
     
     if lead.do_not_contact:
         raise HTTPException(status_code=400, detail="Lead is marked as do-not-contact")
+    
+    # Rate limiting
+    if not await _check_contact_rate_limit(lead, db):
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {MAX_CONTACTS_PER_DAY} contacts per day per lead"
+        )
     
     if channel == "email":
         if not lead.email:
@@ -219,7 +247,7 @@ async def get_pipeline_summary(db: AsyncSession = Depends(get_db)):
         "pipeline": pipeline,
         "total_leads": total,
         "conversion_rate": round(conversion_rate, 2),
-        "active_campaigns": 0,  # TODO
+        "active_campaigns": 0,
     }
 
 
