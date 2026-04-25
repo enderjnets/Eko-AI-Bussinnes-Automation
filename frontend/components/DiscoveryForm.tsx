@@ -16,6 +16,7 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
   const [sources, setSources] = useState<string[]>(["google_maps"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [discoveryResult, setDiscoveryResult] = useState<{total: number; new: number; duplicates: number} | null>(null);
 
   const toggleSource = (source: string) => {
     setSources((prev) =>
@@ -38,8 +39,14 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
         max_results: maxResults,
         sources: sources.length > 0 ? sources : ["google_maps"],
       });
-      onSuccess?.(res.data);
+      const data = res.data;
+      onSuccess?.(data);
       setQuery("");
+      setDiscoveryResult({
+        total: data.total_found || 0,
+        new: data.new_leads || 0,
+        duplicates: data.duplicates_skipped || 0,
+      });
     } catch (err: any) {
       setError(err.response?.data?.detail || "Error en la búsqueda");
     } finally {
@@ -124,6 +131,21 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
             />
           </div>
         </div>
+
+        {discoveryResult && (
+          <div className="rounded-lg bg-eko-green/10 border border-eko-green/20 p-3 text-sm">
+            <p className="text-eko-green font-medium">
+              {discoveryResult.new > 0
+                ? `${discoveryResult.new} nuevos leads agregados a la base de datos`
+                : "No hay leads nuevos en esta búsqueda"}
+            </p>
+            {discoveryResult.duplicates > 0 && (
+              <p className="text-gray-400 text-xs mt-1">
+                {discoveryResult.duplicates} ya existían en la base de datos
+              </p>
+            )}
+          </div>
+        )}
 
         {error && (
           <p className="text-sm text-red-400">{error}</p>

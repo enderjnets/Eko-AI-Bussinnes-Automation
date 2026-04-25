@@ -253,12 +253,12 @@ async def discover_leads(
     if created_leads:
         await db.commit()
     
-    return LeadListResponse(
-        total=len(created_leads),
-        items=created_leads,
-        page=1,
-        page_size=len(created_leads),
-    )
+    return {
+        "total_found": len(leads_data),
+        "new_leads": len(created_leads),
+        "duplicates_skipped": len(leads_data) - len(created_leads),
+        "items": created_leads,
+    }
 
 
 @router.post("/search", response_model=LeadListResponse)
