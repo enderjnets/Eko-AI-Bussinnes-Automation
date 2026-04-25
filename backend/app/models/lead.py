@@ -89,8 +89,8 @@ class Lead(Base):
     consent_recorded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     do_not_contact: Mapped[bool] = mapped_column(Boolean, default=False)
     
-    # Vector embedding for semantic search
-    embedding: Mapped[Optional[list]] = mapped_column(Vector(1536))
+    # Vector embedding for semantic search (384 dims for local sentence-transformers)
+    embedding: Mapped[Optional[list]] = mapped_column(Vector(384))
     
     # Ownership
     owner_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)

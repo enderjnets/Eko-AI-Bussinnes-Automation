@@ -24,9 +24,20 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # API Keys
+    # AI Provider (OpenAI or Kimi/Moonshot)
+    AI_PROVIDER: str = "kimi"  # "openai" or "kimi"
+    
+    # OpenAI settings
     OPENAI_API_KEY: str = ""
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    
+    # Kimi (Moonshot) settings
+    KIMI_API_KEY: str = ""
+    KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
+    KIMI_MODEL: str = "moonshot-v1-8k"
+    KIMI_EMBEDDING_MODEL: str = "moonshot-v1-embedding-1024"
 
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "Eko AI <eko@ekoai.com>"
