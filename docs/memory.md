@@ -1,49 +1,49 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-24  
-**Current version**: 0.4.0  
-**Current phase**: Auth ✅ Complete
+**Current version**: 0.5.0  
+**Current phase**: Calendar Integration ✅ Complete
 
 ---
 
 ## What was done (this session)
 
-### Auth System: JWT + Protected Routes + Multi-tenancy — COMPLETED
+### Calendar Integration + Booking System — COMPLETED
 
 #### Backend
-- **User model** with roles: `admin`, `manager`, `agent`
-- **JWT security**: bcrypt passwords, access/refresh tokens, `get_current_user`, `get_current_admin`
-- **Auth router**: login, register (admin-only), refresh, me, dev-login
-- **Protected routes**: All APIs now require Bearer token
-- **Multi-tenancy**: Non-admin users only see their own leads; `owner_id` auto-assigned
+- **Booking model** — tracks meetings locally with Cal.com sync
+- **Calendar router**: event types, availability, bookings CRUD, cancel, send-link
+- **CRM integration**: send booking link directly from pipeline
+- Cal.com webhook handler already existed — auto-updates lead to `MEETING_BOOKED`
 
 #### Frontend
-- **Auth context**: login state, auto-redirect, localStorage tokens
-- **Login page**: email/password + dev login button
-- **API client**: Axios interceptors inject Bearer token; auto-redirect on 401
-- **Navbar**: shows user name/role + logout
+- **Calendar page** — View upcoming/all/past meetings, cancel, join video links
+- **Navbar** updated with Calendar link
+- **API client** updated with `calendarApi`
 
 #### Tests
-- `tests/test_auth.py` — Password hashing, JWT, RBAC, router endpoints
+- `tests/test_calendar.py` — Booking model, calendar API, schemas
 
 #### Git
-- Version bumped: 0.3.0 → 0.4.0
+- Version bumped: 0.4.0 → 0.5.0
 - CHANGELOG.md updated
 
 #### Paperclip
-- Issue **EKO-17** created: `Auth System — JWT + Protected Routes + Multi-tenancy`
+- Issue **EKO-18** created: `Calendar Integration + Booking System`
 - Status: `done`
 
 ---
 
 ## Previous phases
 
-### Fase 2: Email Outreach + CRM Pipeline + Sequences — COMPLETED
-- 4 Celery scheduled tasks implemented
-- Email Sequences (drip campaigns) with models, API, dry-run
+### Auth System — COMPLETED (v0.4.0)
+- JWT auth, protected routes, multi-tenancy, login page
 
-### Fase 1: Discovery + Research + Dashboard — COMPLETED
-- 4 discovery sources, semantic search, multi-source UI
+### Fase 2: Email Outreach + CRM Pipeline + Sequences — COMPLETED (v0.3.0)
+- 4 Celery tasks, email sequences, drip campaigns
+
+### Fase 1: Discovery + Research + Dashboard — COMPLETED (v0.2.0)
+- 4 discovery sources, semantic search
 
 ---
 
@@ -56,16 +56,18 @@
 | Yelp Fusion | ✅ Working | 500 req/day free tier |
 | LinkedIn (SerpApi) | ✅ Working | 100 searches/month free tier |
 | Auth system | ✅ Working | JWT + RBAC + protected routes |
+| Calendar / Booking | ✅ Working | Cal.com integration, local booking model |
 | Google Maps | ⏳ Deferred | Outscraper requires payment |
 | Docker | ⚠️ Down | Colima/Docker Desktop not running locally |
 | pytest | ⚠️ Blocked | Python 3.14 incompatible with pydantic-core wheels |
 | OpenAI API Key | ❌ Placeholder | Required for enrichment, embeddings, AI email gen |
 | Resend API Key | ❌ Placeholder | Required for actual email delivery |
+| Cal.com API Key | ❌ Placeholder | Required for live calendar sync |
 
-### Next priorities (Fase 3)
+### Next priorities (Fase 3-4)
 1. Voice AI integration (Retell / Vapi)
-2. Calendar integration (Cal.com webhooks already exist)
-3. Production deployment hardening
+2. Production deployment hardening
+3. Analytics dashboard enhancements
 
 ---
 
@@ -79,6 +81,7 @@
 - `OUTSCRAPER_API_KEY`: ❌ Not configured
 - `OPENAI_API_KEY`: ❌ Not configured
 - `RESEND_API_KEY`: ❌ Not configured
+- `CAL_COM_API_KEY`: ❌ Not configured
 
 ### Services status
 | Service | URL | Status |

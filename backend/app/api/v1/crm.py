@@ -278,3 +278,69 @@ async def get_pending_follow_ups(
     )
     
     return result.scalars().all()
+
+
+@router.post("/{lead_id}/send-booking-link")
+async def send_booking_link_from_crm(
+    lead_id: int,
+    event_type_id: Optional[int] = None,
+    custom_message: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a booking link to a lead directly from the CRM pipeline."""
+    result = await db.execute(select(Lead).where(Lead.id == lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    if not lead.email:
+        raise HTTPException(status_code=400, detail="Lead has no email address")
+
+    if lead.do_not_contact:
+        raise HTTPException(status_code=400, detail="Lead is marked as do-not-contact")
+
+    # Build booking link
+    booking_link = f"https://cal.com/eko-ai/demo?email={lead.email}&name={lead.business_name}"
+
+    email = EmailOutreach()
+    subject = f"Let's schedule a quick call — {lead.business_name}"
+
+    body_content = custom_message or f"I'd love to show you how Eko AI can help {lead.business_name}."
+    body = f"""
+<p>Hi there,</p>
+<p>{body_content}</p>
+<p><a href="{booking_link}" style="display:inline-block;padding:12px 24px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:6px;">Book a 15-min call</a></p>
+<p>Or reply to this email if you prefer a different time.</p>
+<p>Best,<br>Eko AI Team</p>
+"""
+
+    response = await email.send(
+        to_email=lead.email,
+        subject=subject,
+        body=body,
+        lead_id=lead.id,
+        business_name=lead.business_name,
+        ai_generated=False,
+        tags=["booking_link", "crm"],
+    )
+
+    # Record interaction
+    interaction = Interaction(
+        lead_id=lead.id,
+        interaction_type="email",
+        direction="outbound",
+        subject=subject,
+        content="Booking link sent from CRM",
+        email_status="sent",
+        email_message_id=response.get("id"),
+        metadata={"booking_link": booking_link, "event_type_id": event_type_id, "source": "crm"},
+    )
+    db.add(interaction)
+    await db.commit()
+
+    return {
+        "status": "sent",
+        "message_id": response.get("id"),
+        "booking_link": booking_link,
+    }

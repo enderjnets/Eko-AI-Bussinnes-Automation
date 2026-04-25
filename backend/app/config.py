@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "Eko AI Business Automation"
-    APP_VERSION: str = "0.4.0"
+    APP_VERSION: str = "0.5.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-in-production"

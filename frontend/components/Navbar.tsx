@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, BarChart3, Users, Mail, Settings, GitBranch, LogOut, UserCircle } from "lucide-react";
+import { Zap, BarChart3, Users, Mail, Settings, GitBranch, LogOut, UserCircle, Calendar } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,6 +27,7 @@ export default function Navbar() {
             <NavLink href="/leads" icon={<Users className="w-4 h-4" />} label="Leads" active={pathname.startsWith("/leads")} />
             <NavLink href="/pipeline" icon={<GitBranch className="w-4 h-4" />} label="Pipeline" active={pathname === "/pipeline"} />
             <NavLink href="/campaigns" icon={<Mail className="w-4 h-4" />} label="Campañas" active={pathname === "/campaigns"} />
+            <NavLink href="/calendar" icon={<Calendar className="w-4 h-4" />} label="Calendar" active={pathname === "/calendar"} />
             <NavLink href="/settings" icon={<Settings className="w-4 h-4" />} label="Config" active={pathname === "/settings"} />
           </div>
           

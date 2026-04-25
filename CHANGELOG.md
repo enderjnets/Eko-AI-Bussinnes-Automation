@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0] — 2026-04-24
+
+### Calendar Integration + Booking System
+
+#### Backend
+- **Booking model** (`app/models/booking.py`) — tracks meetings locally with Cal.com sync
+- **Calendar router** (`app/api/v1/calendar.py`):
+  - `GET /calendar/event-types` — List Cal.com event types
+  - `POST /calendar/availability` — Get available time slots
+  - `GET /calendar/bookings` — List bookings with filters (upcoming, by lead, by status)
+  - `POST /calendar/bookings` — Create booking for a lead (syncs with Cal.com if configured)
+  - `POST /calendar/bookings/{id}/cancel` — Cancel booking locally and on Cal.com
+  - `POST /calendar/send-link` — Send booking link via email to a lead
+- **CRM integration**: `POST /crm/{lead_id}/send-booking-link` — Send booking link directly from pipeline
+- **Webhook handler** (`/webhooks/calcom`) already existed — auto-updates lead to `MEETING_BOOKED` on Cal.com booking
+
+#### Frontend
+- **Calendar page** (`frontend/app/calendar/page.tsx`) — View upcoming/all/past meetings, cancel bookings, join video links
+- **Navbar** updated with Calendar navigation link
+- **API client** updated with `calendarApi` methods
+
+#### Tests
+- `tests/test_calendar.py` — Booking model enums, calendar API endpoints, schemas
+
+---
+
 ## [0.4.0] — 2026-04-24
 
 ### Auth System: JWT + Protected Routes + Multi-tenancy

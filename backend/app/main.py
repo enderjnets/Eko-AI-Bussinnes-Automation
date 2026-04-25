@@ -5,11 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api.v1 import leads, campaigns, emails, analytics, webhooks, crm, sequences, auth
+from app.api.v1 import leads, campaigns, emails, analytics, webhooks, crm, sequences, auth, calendar
 
 # Ensure all models are registered in Base.metadata
 from app.models.sequence import EmailSequence, SequenceStep, SequenceEnrollment  # noqa: F401
 from app.models.user import User  # noqa: F401
+from app.models.booking import Booking  # noqa: F401
 from app.db.base import init_db
 
 settings = get_settings()
@@ -55,6 +56,7 @@ app.include_router(emails.router, prefix="/api/v1/emails", tags=["emails"])
 app.include_router(crm.router, prefix="/api/v1/crm", tags=["crm"])
 app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytics"])
 app.include_router(sequences.router, prefix="/api/v1/sequences", tags=["sequences"])
+app.include_router(calendar.router, prefix="/api/v1/calendar", tags=["calendar"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
 
