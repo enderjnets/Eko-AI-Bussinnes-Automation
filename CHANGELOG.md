@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.1] — 2026-04-24
+
+### Fixed: AI Provider Routing (Kimi Integration)
+
+#### Backend
+- **Docker Compose env vars**: Added `AI_PROVIDER`, `KIMI_API_KEY`, `KIMI_BASE_URL`, `KIMI_MODEL`, `KIMI_EMBEDDING_MODEL`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, `CAL_COM_API_KEY` to `backend`, `celery-worker`, and `celery-beat` services.
+- **Config defaults** (`app/config.py`): Changed `KIMI_BASE_URL` default from Moonshot (`https://api.moonshot.cn/v1`) to Kimi Code API (`https://api.kimi.com/coding/v1`); changed `KIMI_MODEL` default to `kimi-for-coding`.
+- **AI client** (`app/utils/ai_client.py`):
+  - Added fallback to `reasoning_content` when `content` is empty (required for `kimi-for-coding` model).
+  - Fixed `TypeError` in `generate_embedding`: `SentenceTransformer.encode()` does not accept `convert_to_list`; now uses `.tolist()`.
+- **Embeddings alignment**: `sentence-transformers` (`all-MiniLM-L6-v2`) generates 384-dim embeddings, matching `Lead.Vector(384)` in the database schema.
+
+---
+
 ## [0.5.0] — 2026-04-24
 
 ### Calendar Integration + Booking System
