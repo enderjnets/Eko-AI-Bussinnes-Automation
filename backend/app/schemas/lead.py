@@ -54,6 +54,15 @@ class LeadEnrichment(BaseModel):
     urgency_score: Optional[float] = Field(None, ge=0, le=100)
     fit_score: Optional[float] = Field(None, ge=0, le=100)
     scoring_reason: Optional[str] = None
+    # Extended enrichment fields
+    email: Optional[str] = None
+    website_real: Optional[str] = None
+    services: Optional[list] = None
+    pricing_info: Optional[str] = None
+    business_hours: Optional[str] = None
+    about_text: Optional[str] = None
+    team_names: Optional[list] = None
+    proposal_suggestion: Optional[str] = None
 
 
 class LeadResponse(LeadBase):
@@ -70,6 +79,14 @@ class LeadResponse(LeadBase):
     fit_score: Optional[float]
     total_score: Optional[float]
     scoring_reason: Optional[str]
+    # Extended enrichment fields
+    website_real: Optional[str] = None
+    services: Optional[list] = None
+    pricing_info: Optional[str] = None
+    business_hours: Optional[str] = None
+    about_text: Optional[str] = None
+    team_names: Optional[list] = None
+    proposal_suggestion: Optional[str] = None
     email_opened_count: int
     email_clicked_count: int
     call_count: int

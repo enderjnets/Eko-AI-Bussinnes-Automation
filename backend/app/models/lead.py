@@ -77,6 +77,15 @@ class Lead(Base):
     total_score: Mapped[Optional[float]] = mapped_column(Float, default=0.0)  # composite
     scoring_reason: Mapped[Optional[str]] = mapped_column(Text)
     
+    # Extended enrichment (AI-powered research)
+    website_real: Mapped[Optional[str]] = mapped_column(String(500))
+    services: Mapped[Optional[list]] = mapped_column(JSON)
+    pricing_info: Mapped[Optional[str]] = mapped_column(Text)
+    business_hours: Mapped[Optional[str]] = mapped_column(Text)
+    about_text: Mapped[Optional[str]] = mapped_column(Text)
+    team_names: Mapped[Optional[list]] = mapped_column(JSON)
+    proposal_suggestion: Mapped[Optional[str]] = mapped_column(Text)
+    
     # Engagement tracking
     email_opened_count: Mapped[int] = mapped_column(Integer, default=0)
     email_clicked_count: Mapped[int] = mapped_column(Integer, default=0)

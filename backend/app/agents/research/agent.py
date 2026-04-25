@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 
@@ -5,6 +6,7 @@ from app.models.lead import Lead
 from app.schemas.lead import LeadEnrichment
 from app.utils.ai_client import generate_completion
 from app.agents.research.analyzers.website import WebsiteAnalyzer
+from app.agents.research.finder import WebsiteFinder
 from app.services.paperclip import on_research_complete
 
 logger = logging.getLogger(__name__)
@@ -13,39 +15,65 @@ logger = logging.getLogger(__name__)
 class ResearchAgent:
     """
     Research Agent: Enriches lead data with deep research.
-    
+
     Capabilities:
-    - Website analysis (tech stack, features, gaps)
-    - Review analysis (sentiment, pain points)
-    - Gap analysis (what's missing vs competitors)
-    - Scoring (urgency + fit)
+    - Find real business website (via search engines)
+    - Website analysis (tech stack, features, gaps, services, pricing)
+    - Extract contact info (emails, social profiles, team names)
+    - AI-powered gap analysis and scoring
+    - Generate personalized proposal suggestions
     """
-    
+
     def __init__(self):
         self.website_analyzer = WebsiteAnalyzer()
-    
+        self.website_finder = WebsiteFinder()
+
     async def enrich(self, lead: Lead) -> LeadEnrichment:
         """
         Run full enrichment pipeline on a lead.
-        
+
         Returns:
             LeadEnrichment with all enriched fields
         """
         logger.info(f"ResearchAgent: enriching lead '{lead.business_name}'")
-        
+
         enrichment = LeadEnrichment()
-        
-        # 1. Website analysis
-        website_data = {}
-        if lead.website:
+
+        # 1. Find real website if we only have Yelp/social URL
+        website_url = lead.website
+        if not website_url or "yelp.com" in website_url or "facebook.com" in website_url:
             try:
-                website_data = await self.website_analyzer.analyze(lead.website)
+                found = await self.website_finder.find_website(
+                    lead.business_name, lead.city or "", lead.state or ""
+                )
+                if found:
+                    enrichment.website_real = found
+                    website_url = found
+                    logger.info(f"Found real website for {lead.business_name}: {found}")
+            except Exception as e:
+                logger.warning(f"Website finder failed for {lead.business_name}: {e}")
+
+        # 2. Website analysis
+        website_data = {}
+        if website_url:
+            try:
+                website_data = await self.website_analyzer.analyze(website_url)
                 enrichment.tech_stack = website_data.get("technologies_detected", [])
                 enrichment.social_profiles = website_data.get("social_links", {})
+                enrichment.services = website_data.get("services", [])
+                enrichment.pricing_info = website_data.get("pricing_info")
+                enrichment.business_hours = website_data.get("hours")
+                enrichment.about_text = website_data.get("about_text")
+                enrichment.team_names = website_data.get("team_names", [])
+
+                # Use email found on website if lead has none
+                if not lead.email and website_data.get("email_found"):
+                    enrichment.email = website_data.get("email_found")
+
             except Exception as e:
-                logger.warning(f"Website analysis failed for {lead.website}: {e}")
-        
-        # 2. AI-powered gap analysis and scoring
+                logger.warning(f"Website analysis failed for {website_url}: {e}")
+
+        # 3. AI-powered analysis and proposal generation
         try:
             ai_analysis = await self._run_ai_analysis(lead, website_data)
             enrichment.review_summary = ai_analysis.get("review_summary")
@@ -54,9 +82,10 @@ class ResearchAgent:
             enrichment.urgency_score = ai_analysis.get("urgency_score", 0)
             enrichment.fit_score = ai_analysis.get("fit_score", 0)
             enrichment.scoring_reason = ai_analysis.get("scoring_reason", "")
+            enrichment.proposal_suggestion = ai_analysis.get("proposal_suggestion", "")
         except Exception as e:
             logger.error(f"AI analysis failed: {e}")
-        
+
         # Paperclip: log research completion
         try:
             on_research_complete(
@@ -68,57 +97,67 @@ class ResearchAgent:
             )
         except Exception:
             pass
-        
+
         return enrichment
-    
+
     async def _run_ai_analysis(self, lead: Lead, website_data: dict) -> dict:
-        """Use LLM to analyze the lead and generate insights."""
-        
-        system_prompt = """You are an expert sales researcher and business analyst. 
-Your job is to analyze a local business and determine:
-1. Their likely pain points related to AI automation, customer service, and missed calls
-2. Trigger events that indicate they need help now
-3. An urgency score (0-100) based on how badly they need AI automation
-4. A fit score (0-100) based on how well they match our ideal customer profile
-5. A brief scoring reason
+        """Use LLM to analyze the lead and generate insights + proposal."""
 
-Return ONLY a valid JSON object with these exact keys:
-- review_summary: string (summary of their online presence)
-- trigger_events: array of strings
-- pain_points: array of strings  
-- urgency_score: number 0-100
-- fit_score: number 0-100
-- scoring_reason: string (1-2 sentences explaining the scores)
+        system_prompt = """You are an expert sales researcher, business analyst, and proposal writer for an AI automation agency called "Eko AI".
 
-Be honest and data-driven. If there's not much info, give moderate scores with explanation."""
+Your job is to deeply analyze a local business and produce a complete assessment that will be used to create a personalized sales proposal.
+
+Analyze the following and return ONLY a valid JSON object with these exact keys:
+- review_summary: string (2-3 sentence summary of their online presence, brand positioning, and perceived quality)
+- trigger_events: array of strings (specific events or signals that indicate they need AI automation NOW)
+- pain_points: array of strings (specific operational problems they likely face that AI can solve)
+- urgency_score: number 0-100 (how badly they need help right now based on missing tech, negative signals, etc.)
+- fit_score: number 0-100 (how well they match our ideal customer: local service business, high-touch, repeat customers)
+- scoring_reason: string (1-2 sentences explaining why you gave those scores)
+- proposal_suggestion: string (A 3-5 paragraph personalized proposal pitch. Address the business by name. Mention specific pain points we discovered, reference their services, and explain exactly how Eko AI can help them: missed call AI, appointment booking automation, follow-up sequences, review generation, and CRM pipeline. Be persuasive, specific, and professional.)
+
+Be data-driven and specific. Reference actual services and gaps found. If they don't have online booking, mention it. If they don't have a chatbot, mention missed calls. If their website is outdated (WordPress/Wix), mention modernization."""
 
         context = f"""Business Name: {lead.business_name}
 Category: {lead.category or 'Unknown'}
 City: {lead.city or 'Unknown'}
-Description: {lead.description or 'N/A'}
-Website: {lead.website or 'N/A'}
+State: {lead.state or 'Unknown'}
 Phone: {lead.phone or 'N/A'}
+Current Website: {lead.website or 'N/A'}
+Real Website Found: {website_data.get('url', 'N/A')}
+Description: {lead.description or 'N/A'}
 
-Website Analysis:
+Website Analysis Results:
 - Title: {website_data.get('title', 'N/A')}
-- Description: {website_data.get('description', 'N/A')}
-- Technologies: {', '.join(website_data.get('technologies_detected', [])) or 'None detected'}
-- Has Chatbot: {website_data.get('has_chatbot', False)}
+- Meta Description: {website_data.get('description', 'N/A')}
+- Technologies Used: {', '.join(website_data.get('technologies_detected', [])) or 'None detected'}
+- Has Chatbot / Live Chat: {website_data.get('has_chatbot', False)}
 - Has Online Booking: {website_data.get('has_booking', False)}
 - Has Contact Form: {website_data.get('has_contact_form', False)}
+- Has E-commerce: {website_data.get('has_ecommerce', False)}
+- Has Blog: {website_data.get('has_blog', False)}
+- Has Newsletter: {website_data.get('has_newsletter', False)}
+- Has Online Ordering: {website_data.get('has_online_ordering', False)}
+- Services Listed: {', '.join(website_data.get('services', [])) or 'None extracted'}
+- Pricing Info: {website_data.get('pricing_info', 'N/A')}
+- Business Hours: {website_data.get('hours', 'N/A')}
+- About Text: {website_data.get('about_text', 'N/A')[:400] if website_data.get('about_text') else 'N/A'}
+- Team/Owners: {', '.join(website_data.get('team_names', [])) or 'N/A'}
 - Social Links: {list(website_data.get('social_links', {}).keys()) or 'None found'}
+- Email Found on Site: {website_data.get('email_found', 'N/A')}
 
-Source Data: {lead.source_data or {}}
+Source Platform: {lead.source or 'Unknown'}
+Raw Source Data: {lead.source_data or {}}
 """
 
         response = await generate_completion(
             system_prompt=system_prompt,
             user_prompt=context,
-            temperature=0.4,
+            temperature=0.5,
+            max_tokens=3000,
             json_mode=True,
         )
-        
-        import json
+
         try:
             result = json.loads(response)
             # Validate and clamp scores
@@ -128,10 +167,11 @@ Source Data: {lead.source_data or {}}
         except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse AI analysis JSON: {e}")
             return {
-                "review_summary": "Analysis incomplete",
+                "review_summary": "Analysis incomplete due to parsing error",
                 "trigger_events": [],
                 "pain_points": [],
                 "urgency_score": 50,
                 "fit_score": 50,
                 "scoring_reason": "Insufficient data for accurate scoring",
+                "proposal_suggestion": f"We would love to help {lead.business_name} streamline their operations with AI automation. Contact us to learn more.",
             }

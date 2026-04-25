@@ -1,5 +1,6 @@
+import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,8 @@ from app.services.paperclip import on_lead_status_change, on_system_alert
 from app.utils.embedding import update_lead_embedding
 from app.utils.ai_client import generate_embedding
 from app.core.security import get_current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -280,3 +283,59 @@ async def search_leads(
         page=1,
         page_size=len(items),
     )
+
+
+@router.post("/enrich-all", response_model=dict)
+async def enrich_all_leads(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Enqueue enrichment for all discovered/enriched leads without a real website analyzed."""
+    result = await db.execute(
+        select(Lead).where(
+            Lead.status.in_([LeadStatus.DISCOVERED, LeadStatus.ENRICHED])
+        )
+    )
+    leads = result.scalars().all()
+
+    # Run in background so the HTTP request returns immediately
+    background_tasks.add_task(_enrich_leads_batch, leads, db)
+
+    return {
+        "message": f"Enrichment started for {len(leads)} leads in the background",
+        "total": len(leads),
+    }
+
+
+async def _enrich_leads_batch(leads: list, db: AsyncSession):
+    """Background task: enrich a batch of leads."""
+    agent = ResearchAgent()
+    enriched_count = 0
+    failed_count = 0
+
+    for lead in leads:
+        try:
+            enriched = await agent.enrich(lead)
+            for field, value in enriched.model_dump(exclude_unset=True).items():
+                setattr(lead, field, value)
+
+            if lead.urgency_score and lead.fit_score:
+                lead.total_score = (lead.urgency_score + lead.fit_score) / 2
+                lead.status = LeadStatus.SCORED
+            else:
+                lead.status = LeadStatus.ENRICHED
+
+            # Update embedding
+            try:
+                await update_lead_embedding(lead)
+            except Exception:
+                pass
+
+            enriched_count += 1
+        except Exception as e:
+            logger.error(f"Failed to enrich lead {lead.id} ({lead.business_name}): {e}")
+            failed_count += 1
+
+    await db.commit()
+    logger.info(f"Batch enrichment complete: {enriched_count} enriched, {failed_count} failed")
