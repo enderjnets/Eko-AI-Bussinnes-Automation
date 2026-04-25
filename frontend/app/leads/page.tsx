@@ -32,6 +32,7 @@ export default function LeadsPage() {
   const [enrichingId, setEnrichingId] = useState<number | null>(null);
   const [enrichmentStatus, setEnrichmentStatus] = useState<any>(null);
   const [showEnrichmentToast, setShowEnrichmentToast] = useState(false);
+  const [bulkEnriching, setBulkEnriching] = useState(false);
 
   useEffect(() => {
     loadLeads();
@@ -175,6 +176,45 @@ export default function LeadsPage() {
             <Filter className="w-4 h-4" />
           </button>
         </form>
+
+        {/* Bulk enrich button */}
+        <div className="flex items-center justify-between mb-4">
+          {enrichmentStatus && enrichmentStatus.discovered > 0 && (
+            <button
+              onClick={async () => {
+                setBulkEnriching(true);
+                try {
+                  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+                  const res = await fetch("http://10.0.0.240:8001/api/v1/leads/enrich-all", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+                  });
+                  const data = await res.json();
+                  setShowEnrichmentToast(true);
+                  setTimeout(() => setShowEnrichmentToast(false), 5000);
+                } catch (err) {
+                  console.error(err);
+                } finally {
+                  setBulkEnriching(false);
+                }
+              }}
+              disabled={bulkEnriching}
+              className="flex items-center gap-2 rounded-lg bg-eko-green/20 border border-eko-green/30 px-4 py-2 text-sm font-medium text-eko-green hover:bg-eko-green/30 disabled:opacity-50 transition-colors"
+            >
+              {bulkEnriching ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4" />
+              )}
+              Enriquecer Todos ({enrichmentStatus.discovered})
+            </button>
+          )}
+          {enrichmentStatus && (
+            <div className="text-xs text-gray-500">
+              {enrichmentStatus.scored} enriquecidos · {enrichmentStatus.discovered} pendientes
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-20">

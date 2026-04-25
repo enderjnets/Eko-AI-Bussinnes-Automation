@@ -123,7 +123,11 @@ class WebsiteAnalyzer:
                     social_links[platform] = a["href"]
 
         # Try to find email on page
-        email_found = self._extract_emails(response.text)
+        email_found = self._extract_emails(response.text, soup)
+
+        # If no email found, try contact page
+        if not email_found:
+            email_found = await self._try_contact_page(url)
 
         # Extract services offered
         services = self._extract_services(soup)
@@ -181,27 +185,95 @@ class WebsiteAnalyzer:
             "has_online_ordering": has_online_ordering,
         }
 
-    def _extract_emails(self, text: str) -> Optional[str]:
-        """Extract the most likely business email from page text."""
+    def _extract_emails(self, text: str, soup: BeautifulSoup = None) -> Optional[str]:
+        """Extract the most likely business email from page text, mailto links, and schema.org."""
+        all_emails = []
+
+        # 1. Regex from raw HTML
         email_pattern = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-        emails = email_pattern.findall(text)
-        if emails:
-            # Filter out common false positives
-            blocked = [
-            "example.com", "test@", "noreply", "no-reply", "domain.com", "email.com",
-            "sentry", "wixpress", "wix.com", "support@wix", "@sentry.", "@wix.",
-            "@google.com", "@facebook.com", "@instagram.com", "@twitter.com",
-            "@linkedin.com", "@youtube.com", "@tiktok.com",
-        ]
-            filtered = [
-                e for e in emails
-                if not any(b in e.lower() for b in blocked)
-                and not e.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg"))
+        all_emails.extend(email_pattern.findall(text))
+
+        # 2. mailto: links
+        if soup:
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if href.startswith("mailto:"):
+                    email = href.replace("mailto:", "").split("?")[0].strip()
+                    if email and "@" in email:
+                        all_emails.append(email)
+
+            # 3. Schema.org JSON-LD
+            import json as _json
+            for script in soup.find_all("script", type="application/ld+json"):
+                try:
+                    data = _json.loads(script.string or "{}")
+                    def find_emails(obj):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                if k == "email" and isinstance(v, str) and "@" in v:
+                                    all_emails.append(v)
+                                elif isinstance(v, (dict, list)):
+                                    find_emails(v)
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                find_emails(item)
+                    find_emails(data)
+                except Exception:
+                    pass
+
+        if all_emails:
+            # Filter out platform / fake emails
+            blocked_domains = [
+                "example.com", "test.com", "domain.com", "email.com",
+                "sentry.io", "sentry.com", "sentry-next.wixpress.com",
+                "wixpress.com", "wix.com", "editorx.com",
+                "squarespace.com", "squarespace-mail.com",
+                "shopify.com", "myshopify.com",
+                "weebly.com", "webflow.io", "webflow.com",
+                "wordpress.com", "wp.com", "wpengine.com",
+                "godaddy.com", "hostgator.com", "bluehost.com",
+                "google.com", "gmail.com", "yahoo.com", "outlook.com", "hotmail.com",
+                "facebook.com", "instagram.com", "twitter.com", "x.com",
+                "linkedin.com", "youtube.com", "tiktok.com",
             ]
+            blocked_patterns = [
+                "noreply", "no-reply", "donotreply", "do-not-reply",
+                "support@shopify", "support@wix", "admin@wordpress",
+                "info@wordpress", "help@wordpress", "test@",
+                "example@", "user@", "admin@", "postmaster@",
+                "abuse@", "webmaster@", "hostmaster@",
+            ]
+
+            filtered = []
+            for e in all_emails:
+                e_lower = e.lower()
+                if e.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
+                    continue
+                if any(bd in e_lower for bd in blocked_domains):
+                    continue
+                if any(bp in e_lower for bp in blocked_patterns):
+                    continue
+                filtered.append(e)
+
             if filtered:
-                # Prefer info@, contact@, hello@, admin@ over personal emails
-                preferred = [e for e in filtered if any(p in e.lower() for p in ["info@", "contact@", "hello@", "admin@", "support@", "sales@", "booking@"])]
+                preferred_prefixes = ["info@", "contact@", "hello@", "admin@", "support@", "sales@", "booking@", "appointments@"]
+                preferred = [e for e in filtered if any(e.lower().startswith(p) for p in preferred_prefixes)]
                 return preferred[0] if preferred else filtered[0]
+        return None
+
+    async def _try_contact_page(self, base_url: str) -> Optional[str]:
+        """Try to find email on /contact or /about pages."""
+        for path in ["/contact", "/contact-us", "/about", "/about-us"]:
+            try:
+                url = base_url.rstrip("/") + path
+                resp = await self.client.get(url, timeout=10.0)
+                if resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    email = self._extract_emails(resp.text, soup)
+                    if email:
+                        return email
+            except Exception:
+                continue
         return None
 
     def _extract_services(self, soup: BeautifulSoup) -> list:
