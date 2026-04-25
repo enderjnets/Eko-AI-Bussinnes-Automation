@@ -52,7 +52,13 @@ async def generate_completion(
     response = await openai_client.chat.completions.create(**kwargs)
     
     # Kimi returns reasoning_content separately; use content for the actual output
-    content = response.choices[0].message.content or ""
+    msg = response.choices[0].message
+    content = msg.content or ""
+    
+    # Fallback to reasoning_content when content is empty (kimi-for-coding behavior)
+    if not content and hasattr(msg, "reasoning_content"):
+        content = msg.reasoning_content or ""
+    
     return content
 
 
@@ -68,8 +74,8 @@ async def generate_embedding(text: str, model: str = None) -> list:
         if not hasattr(generate_embedding, "_model"):
             generate_embedding._model = SentenceTransformer("all-MiniLM-L6-v2")
         
-        embedding = generate_embedding._model.encode(text, convert_to_list=True)
-        return embedding
+        embedding = generate_embedding._model.encode(text)
+        return embedding.tolist()
     
     # OpenAI embeddings
     response = await openai_client.embeddings.create(

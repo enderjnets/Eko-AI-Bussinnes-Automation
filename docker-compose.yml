@@ -42,12 +42,21 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-eko}:${POSTGRES_PASSWORD:-eko_dev_pass}@db:5432/${POSTGRES_DB:-eko_ai}
       - REDIS_URL=redis://redis:6379/0
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - KIMI_BASE_URL=${KIMI_BASE_URL:-https://api.kimi.com/coding/v1}
+      - KIMI_MODEL=${KIMI_MODEL:-kimi-for-coding}
+      - KIMI_EMBEDDING_MODEL=${KIMI_EMBEDDING_MODEL:-moonshot-v1-embedding-1024}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
       - YELP_API_KEY=${YELP_API_KEY}
       - SERPAPI_API_KEY=${SERPAPI_API_KEY}
       - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CAL_COM_API_KEY=${CAL_COM_API_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
       - ENVIRONMENT=${ENVIRONMENT:-development}
@@ -71,12 +80,21 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-eko}:${POSTGRES_PASSWORD:-eko_dev_pass}@db:5432/${POSTGRES_DB:-eko_ai}
       - REDIS_URL=redis://redis:6379/0
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - KIMI_BASE_URL=${KIMI_BASE_URL:-https://api.kimi.com/coding/v1}
+      - KIMI_MODEL=${KIMI_MODEL:-kimi-for-coding}
+      - KIMI_EMBEDDING_MODEL=${KIMI_EMBEDDING_MODEL:-moonshot-v1-embedding-1024}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
       - YELP_API_KEY=${YELP_API_KEY}
       - SERPAPI_API_KEY=${SERPAPI_API_KEY}
       - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CAL_COM_API_KEY=${CAL_COM_API_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
       - ENVIRONMENT=${ENVIRONMENT:-development}
@@ -98,12 +116,21 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-eko}:${POSTGRES_PASSWORD:-eko_dev_pass}@db:5432/${POSTGRES_DB:-eko_ai}
       - REDIS_URL=redis://redis:6379/0
+      - AI_PROVIDER=${AI_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - OPENAI_EMBEDDING_MODEL=${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - KIMI_BASE_URL=${KIMI_BASE_URL:-https://api.kimi.com/coding/v1}
+      - KIMI_MODEL=${KIMI_MODEL:-kimi-for-coding}
+      - KIMI_EMBEDDING_MODEL=${KIMI_EMBEDDING_MODEL:-moonshot-v1-embedding-1024}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - OUTSCRAPER_API_KEY=${OUTSCRAPER_API_KEY}
       - YELP_API_KEY=${YELP_API_KEY}
       - SERPAPI_API_KEY=${SERPAPI_API_KEY}
       - PAPERCLIP_API_KEY=${PAPERCLIP_API_KEY}
+      - CAL_COM_API_KEY=${CAL_COM_API_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:8000}
       - SECRET_KEY=${SECRET_KEY:-dev-secret-change-in-production}
       - ENVIRONMENT=${ENVIRONMENT:-development}

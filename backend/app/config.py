@@ -33,10 +33,10 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     
-    # Kimi (Moonshot) settings
+    # Kimi (Kimi Code API) settings
     KIMI_API_KEY: str = ""
-    KIMI_BASE_URL: str = "https://api.moonshot.cn/v1"
-    KIMI_MODEL: str = "moonshot-v1-8k"
+    KIMI_BASE_URL: str = "https://api.kimi.com/coding/v1"
+    KIMI_MODEL: str = "kimi-for-coding"
     KIMI_EMBEDDING_MODEL: str = "moonshot-v1-embedding-1024"
 
     RESEND_API_KEY: str = ""
