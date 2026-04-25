@@ -116,7 +116,7 @@ Analyze the following and return ONLY a valid JSON object with these exact keys:
 - scoring_reason: string (1-2 sentences explaining why you gave those scores)
 - proposal_suggestion: string (A 3-5 paragraph personalized proposal pitch. Address the business by name. Mention specific pain points we discovered, reference their services, and explain exactly how Eko AI can help them: missed call AI, appointment booking automation, follow-up sequences, review generation, and CRM pipeline. Be persuasive, specific, and professional.)
 
-Be data-driven and specific. Reference actual services and gaps found. If they don't have online booking, mention it. If they don't have a chatbot, mention missed calls. If their website is outdated (WordPress/Wix), mention modernization."""
+Be concise. Keep proposal_suggestion to 3 paragraphs max so it fits in JSON."""
 
         context = f"""Business Name: {lead.business_name}
 Category: {lead.category or 'Unknown'}
@@ -154,7 +154,7 @@ Raw Source Data: {lead.source_data or {}}
             system_prompt=system_prompt,
             user_prompt=context,
             temperature=0.5,
-            max_tokens=3000,
+            max_tokens=4000,
             json_mode=True,
         )
 
@@ -182,12 +182,12 @@ Raw Source Data: {lead.source_data or {}}
             return result
 
         logger.error("AI analysis returned no valid JSON, using fallback")
-            return {
-                "review_summary": "Analysis incomplete due to parsing error",
-                "trigger_events": [],
-                "pain_points": [],
-                "urgency_score": 50,
-                "fit_score": 50,
-                "scoring_reason": "Insufficient data for accurate scoring",
-                "proposal_suggestion": f"We would love to help {lead.business_name} streamline their operations with AI automation. Contact us to learn more.",
-            }
+        return {
+            "review_summary": "Analysis incomplete due to parsing error",
+            "trigger_events": [],
+            "pain_points": [],
+            "urgency_score": 50,
+            "fit_score": 50,
+            "scoring_reason": "Insufficient data for accurate scoring",
+            "proposal_suggestion": f"We would love to help {lead.business_name} streamline their operations with AI automation. Contact us to learn more.",
+        }
