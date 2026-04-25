@@ -30,10 +30,18 @@ export default function LeadsPage() {
   const [status, setStatus] = useState("");
   const [semanticMode, setSemanticMode] = useState(false);
   const [enrichingId, setEnrichingId] = useState<number | null>(null);
+  const [enrichmentStatus, setEnrichmentStatus] = useState<any>(null);
+  const [showEnrichmentToast, setShowEnrichmentToast] = useState(false);
 
   useEffect(() => {
     loadLeads();
   }, [status]);
+
+  useEffect(() => {
+    loadEnrichmentStatus();
+    const interval = setInterval(loadEnrichmentStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Poll enrichment status every 30 seconds
   useEffect(() => {
@@ -71,6 +79,24 @@ export default function LeadsPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadEnrichmentStatus = async () => {
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+      const res = await fetch("http://10.0.0.240:8001/api/v1/leads/enrichment-status", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const newStatus = await res.json();
+      if (enrichmentStatus && newStatus.scored > enrichmentStatus.scored) {
+        setShowEnrichmentToast(true);
+        setTimeout(() => setShowEnrichmentToast(false), 5000);
+        loadLeads();
+      }
+      setEnrichmentStatus(newStatus);
+    } catch (err) {
+      // silently fail
     }
   };
 
