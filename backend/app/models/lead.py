@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum as PyEnum
 from typing import Optional, List
-from sqlalchemy import String, Text, Float, DateTime, ForeignKey, JSON, Enum, Integer, Boolean
+from sqlalchemy import String, Text, Float, DateTime, ForeignKey, JSON, Enum, Integer, Boolean, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 
@@ -35,6 +35,11 @@ class LeadSource(str, PyEnum):
 
 class Lead(Base):
     __tablename__ = "leads"
+
+    # Composite index for efficient Kanban column filtering (status + id)
+    __table_args__ = (
+        Index("ix_leads_status_id", "status", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     

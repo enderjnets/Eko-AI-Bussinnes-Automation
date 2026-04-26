@@ -118,6 +118,27 @@ export default function LeadDetailPage() {
     churned: "bg-stone-500",
   };
 
+  const VALID_TRANSITIONS: Record<string, string[]> = {
+    discovered: ["enriched", "contacted"],
+    enriched: ["scored", "contacted"],
+    scored: ["contacted", "closed_lost"],
+    contacted: ["engaged", "closed_lost"],
+    engaged: ["meeting_booked", "proposal_sent", "closed_lost"],
+    meeting_booked: ["proposal_sent", "negotiating", "closed_won", "closed_lost"],
+    proposal_sent: ["negotiating", "closed_won", "closed_lost"],
+    negotiating: ["closed_won", "closed_lost"],
+    closed_won: ["active"],
+    closed_lost: ["discovered"],
+    active: ["at_risk"],
+    at_risk: ["churned", "active"],
+    churned: [],
+  };
+
+  const isValidTransition = (from: string, to: string) => {
+    if (from === to) return false;
+    return VALID_TRANSITIONS[from]?.includes(to);
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-eko-graphite">
@@ -431,20 +452,35 @@ export default function LeadDetailPage() {
                   { key: "active", label: "Active" },
                   { key: "at_risk", label: "At Risk" },
                   { key: "churned", label: "Churned" },
-                ].map((stage) => (
-                  <button
-                    key={stage.key}
-                    onClick={() => handleTransition(stage.key)}
-                    disabled={transitionLoading || lead.status === stage.key}
-                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
-                      lead.status === stage.key
-                        ? "bg-eko-blue/20 text-eko-blue font-medium"
-                        : "hover:bg-white/5 text-gray-400"
-                    }`}
-                  >
-                    {stage.label}
-                  </button>
-                ))}
+                ].map((stage) => {
+                  const isCurrent = lead.status === stage.key;
+                  const isValid = isValidTransition(lead.status, stage.key);
+                  const isDisabled = transitionLoading || isCurrent || !isValid;
+
+                  return (
+                    <button
+                      key={stage.key}
+                      onClick={() => handleTransition(stage.key)}
+                      disabled={isDisabled}
+                      title={
+                        isCurrent
+                          ? "Etapa actual"
+                          : isValid
+                          ? "Mover a esta etapa"
+                          : "Transición no permitida"
+                      }
+                      className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
+                        isCurrent
+                          ? "bg-eko-blue/20 text-eko-blue font-medium"
+                          : isValid
+                          ? "hover:bg-white/5 text-gray-400"
+                          : "text-gray-600 cursor-not-allowed opacity-50"
+                      }`}
+                    >
+                      {stage.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
