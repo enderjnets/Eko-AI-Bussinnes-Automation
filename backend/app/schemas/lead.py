@@ -96,6 +96,7 @@ class LeadResponse(LeadBase):
     assigned_to: Optional[str]
     tags: Optional[list]
     notes: Optional[str]
+    distance_km: Optional[float] = None  # Computed when lat/lng reference provided
     created_at: datetime
     updated_at: datetime
 

@@ -1,7 +1,21 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Filter, Loader2, MapPin, Mail, Phone, Globe, Sparkles, Brain } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Search,
+  Filter,
+  Loader2,
+  MapPin,
+  Mail,
+  Phone,
+  Globe,
+  Sparkles,
+  Brain,
+  Navigation,
+  Target,
+  X,
+  ChevronDown,
+} from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { leadsApi } from "@/lib/api";
@@ -20,7 +34,29 @@ interface Lead {
   urgency_score: number;
   fit_score: number;
   total_score: number;
+  distance_km?: number;
   created_at: string;
+}
+
+const DEFAULT_HQ_ADDRESS = "6000 S Fraser St, Aurora, CO 80016";
+const HQ_STORAGE_KEY = "eko_hq_address";
+const HQ_COORDS_KEY = "eko_hq_coords";
+
+type SortMode = "score" | "distance" | "score_distance";
+
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  if (!address.trim()) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
+    const res = await fetch(url, { headers: { "User-Agent": "EkoAI-LeadManager/1.0" } });
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch (err) {
+    console.error("Geocoding failed:", err);
+  }
+  return null;
 }
 
 export default function LeadsPage() {
@@ -35,14 +71,44 @@ export default function LeadsPage() {
   const [bulkEnriching, setBulkEnriching] = useState(false);
   const [totalLeads, setTotalLeads] = useState(0);
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState<SortMode>("score_distance");
 
+  // Headquarters address & coordinates
+  const [hqAddress, setHqAddress] = useState(DEFAULT_HQ_ADDRESS);
+  const [hqCoords, setHqCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [editingHq, setEditingHq] = useState(false);
+  const [hqInput, setHqInput] = useState(DEFAULT_HQ_ADDRESS);
+  const [geocoding, setGeocoding] = useState(false);
+
+  // Load HQ from localStorage on mount
+  useEffect(() => {
+    const savedAddr = localStorage.getItem(HQ_STORAGE_KEY);
+    const savedCoords = localStorage.getItem(HQ_COORDS_KEY);
+    if (savedAddr) {
+      setHqAddress(savedAddr);
+      setHqInput(savedAddr);
+    }
+    if (savedCoords) {
+      try {
+        setHqCoords(JSON.parse(savedCoords));
+      } catch {
+        // ignore parse errors
+      }
+    } else {
+      // Geocode default on first load
+      geocodeAddress(savedAddr || DEFAULT_HQ_ADDRESS).then((coords) => {
+        if (coords) {
+          setHqCoords(coords);
+          localStorage.setItem(HQ_COORDS_KEY, JSON.stringify(coords));
+        }
+      });
+    }
+  }, []);
+
+  // Fetch leads whenever filters, page, sort, or HQ coords change
   useEffect(() => {
     loadLeads();
-  }, [status]);
-
-  useEffect(() => {
-    loadLeads();
-  }, [page]);
+  }, [status, page, sortBy, hqCoords]);
 
   useEffect(() => {
     loadEnrichmentStatus();
@@ -54,7 +120,7 @@ export default function LeadsPage() {
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
       const res = await fetch("/api/v1/leads/enrichment-status", {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       const newStatus = await res.json();
       if (enrichmentStatus && newStatus.scored > enrichmentStatus.scored) {
@@ -68,26 +134,40 @@ export default function LeadsPage() {
     }
   };
 
-  const loadLeads = async () => {
+  const loadLeads = useCallback(async () => {
     setLoading(true);
     try {
       let res;
       if (semanticMode && search.trim()) {
         res = await leadsApi.search({ query: search.trim(), status: status || undefined });
+        setLeads(res.data.items || []);
+        setTotalLeads(res.data.items?.length || 0);
       } else {
-        res = await leadsApi.list({ status: status || undefined, search: search || undefined, page_size: 100, page });
+        const params: any = {
+          status: status || undefined,
+          search: search || undefined,
+          page_size: 100,
+          page,
+          sort_by: sortBy,
+        };
+        if (hqCoords && sortBy !== "score") {
+          params.lat = hqCoords.lat;
+          params.lng = hqCoords.lng;
+        }
+        res = await leadsApi.list(params);
+        setLeads(res.data.items || []);
+        setTotalLeads(res.data.total || 0);
       }
-      setLeads(res.data.items || []);
-      setTotalLeads(res.data.total || 0);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [search, status, page, sortBy, hqCoords, semanticMode]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setPage(1);
     loadLeads();
   };
 
@@ -103,11 +183,35 @@ export default function LeadsPage() {
     }
   };
 
+  const handleSaveHq = async () => {
+    if (!hqInput.trim()) return;
+    setGeocoding(true);
+    const coords = await geocodeAddress(hqInput.trim());
+    setGeocoding(false);
+    if (coords) {
+      setHqAddress(hqInput.trim());
+      setHqCoords(coords);
+      localStorage.setItem(HQ_STORAGE_KEY, hqInput.trim());
+      localStorage.setItem(HQ_COORDS_KEY, JSON.stringify(coords));
+      setEditingHq(false);
+      setPage(1);
+      loadLeads();
+    } else {
+      alert("No se pudo geocodificar la dirección. Intenta con un formato más específico (ej: Calle, Ciudad, Estado ZIP).");
+    }
+  };
+
   const getScoreColor = (score: number) => {
     if (score >= 70) return "text-eko-green";
     if (score >= 50) return "text-gold";
     if (score >= 30) return "text-orange-400";
     return "text-gray-500";
+  };
+
+  const sortLabel: Record<SortMode, string> = {
+    score: "Mejor Score",
+    distance: "Más Cercanos",
+    score_distance: "Score + Cercanía",
   };
 
   return (
@@ -125,15 +229,55 @@ export default function LeadsPage() {
         </div>
       )}
       <main className="pt-20 pb-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
           <div>
             <h1 className="text-2xl font-bold font-display">Leads</h1>
             <p className="text-gray-400 text-sm">Gestiona y enriquece tus prospectos</p>
           </div>
+
+          {/* Headquarters address */}
+          <div className="flex items-center gap-2 text-sm">
+            <Target className="w-4 h-4 text-eko-blue" />
+            {editingHq ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={hqInput}
+                  onChange={(e) => setHqInput(e.target.value)}
+                  placeholder="Dirección HQ..."
+                  className="w-64 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-sm focus:border-eko-blue focus:outline-none"
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveHq()}
+                />
+                <button
+                  onClick={handleSaveHq}
+                  disabled={geocoding}
+                  className="rounded-lg bg-eko-blue px-3 py-1.5 text-xs font-medium hover:bg-eko-blue-dark disabled:opacity-50"
+                >
+                  {geocoding ? <Loader2 className="w-3 h-3 animate-spin" /> : "Guardar"}
+                </button>
+                <button
+                  onClick={() => { setEditingHq(false); setHqInput(hqAddress); }}
+                  className="p-1.5 rounded-lg hover:bg-white/10 text-gray-400"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingHq(true)}
+                className="flex items-center gap-1.5 text-gray-400 hover:text-white transition-colors"
+                title="Cambiar dirección de referencia"
+              >
+                <span className="truncate max-w-[240px]">{hqAddress}</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
 
-        <form onSubmit={handleSearch} className="flex gap-3 mb-6">
-          <div className="relative flex-1">
+        {/* Smart Filter Bar */}
+        <form onSubmit={handleSearch} className="flex flex-wrap gap-3 mb-6">
+          <div className="relative flex-1 min-w-[200px]">
             {semanticMode ? (
               <Brain className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-eko-green" />
             ) : (
@@ -143,12 +287,13 @@ export default function LeadsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder={semanticMode ? "Búsqueda semántica (ej: restaurantes con malas reseñas)..." : "Buscar por nombre..."}
+              placeholder={semanticMode ? "Búsqueda semántica (ej: restaurantes con malas reseñas)..." : "Buscar por nombre, ciudad, dirección..."}
               className={`w-full rounded-lg border bg-white/5 pl-10 pr-4 py-2.5 text-sm focus:outline-none ${
                 semanticMode ? "border-eko-green/50 focus:border-eko-green focus:ring-1 focus:ring-eko-green" : "border-white/10 focus:border-eko-blue"
               }`}
             />
           </div>
+
           <button
             type="button"
             onClick={() => setSemanticMode((prev) => !prev)}
@@ -162,9 +307,10 @@ export default function LeadsPage() {
             <Brain className="w-4 h-4" />
             <span className="hidden sm:inline">{semanticMode ? "Semántica" : "Texto"}</span>
           </button>
+
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             className="rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:border-eko-blue focus:outline-none"
           >
             <option value="">Todos los estados</option>
@@ -176,6 +322,17 @@ export default function LeadsPage() {
             <option value="closed_won">Ganados</option>
             <option value="closed_lost">Perdidos</option>
           </select>
+
+          <select
+            value={sortBy}
+            onChange={(e) => { setSortBy(e.target.value as SortMode); setPage(1); }}
+            className="rounded-lg border border-white/10 bg-white/5 px-4 py-2.5 text-sm focus:border-eko-blue focus:outline-none"
+          >
+            <option value="score_distance">Score + Cercanía</option>
+            <option value="score">Mejor Score</option>
+            <option value="distance">Más Cercanos</option>
+          </select>
+
           <button
             type="submit"
             className="rounded-lg bg-eko-blue px-4 py-2.5 text-sm font-medium hover:bg-eko-blue-dark transition-colors"
@@ -194,9 +351,9 @@ export default function LeadsPage() {
                   const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
                   const res = await fetch("/api/v1/leads/enrich-all", {
                     method: "POST",
-                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
+                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
                   });
-                  const data = await res.json();
+                  await res.json();
                   setShowEnrichmentToast(true);
                   setTimeout(() => setShowEnrichmentToast(false), 5000);
                 } catch (err) {
@@ -239,7 +396,7 @@ export default function LeadsPage() {
               <div
                 className="bg-gradient-to-r from-eko-green to-eko-blue h-2.5 rounded-full transition-all duration-700 ease-out"
                 style={{
-                  width: `${Math.round(((enrichmentStatus.scored + enrichmentStatus.enriched) / enrichmentStatus.total) * 100)}%`
+                  width: `${Math.round(((enrichmentStatus.scored + enrichmentStatus.enriched) / enrichmentStatus.total) * 100)}%`,
                 }}
               />
             </div>
@@ -253,6 +410,11 @@ export default function LeadsPage() {
         {leads.length > 0 && (
           <div className="mt-3 text-xs text-gray-500 text-right">
             Mostrando {leads.length} de {totalLeads} leads
+            {hqCoords && sortBy !== "score" && (
+              <span className="ml-2 text-eko-blue">
+                · Origen: {hqAddress}
+              </span>
+            )}
           </div>
         )}
 
@@ -273,6 +435,7 @@ export default function LeadsPage() {
                   <th className="px-4 py-3">Ubicación</th>
                   <th className="px-4 py-3">Contacto</th>
                   <th className="px-4 py-3">Score</th>
+                  {hqCoords && sortBy !== "score" && <th className="px-4 py-3">Distancia</th>}
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
@@ -328,6 +491,20 @@ export default function LeadsPage() {
                         <span className="text-gray-600 text-sm">—</span>
                       )}
                     </td>
+                    {hqCoords && sortBy !== "score" && (
+                      <td className="px-4 py-3">
+                        {lead.distance_km !== undefined && lead.distance_km !== null ? (
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Navigation className="w-3 h-3 text-eko-blue" />
+                            {lead.distance_km < 1
+                              ? `${(lead.distance_km * 1000).toFixed(0)} m`
+                              : `${lead.distance_km.toFixed(1)} km`}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-600">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-3">
                       <span className="text-xs px-2 py-1 rounded-full bg-white/5 text-gray-400 capitalize">
                         {lead.status.replace("_", " ")}
@@ -380,7 +557,6 @@ export default function LeadsPage() {
             </div>
           </div>
         )}
-
       </main>
     </div>
   );

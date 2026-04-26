@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy import select, func
@@ -45,17 +46,32 @@ async def enrichment_status(
         "total": discovered + enriched + scored,
     }
 
+def _haversine_km(lat1: float, lng1: float, lat2: Optional[float], lng2: Optional[float]) -> Optional[float]:
+    """Calculate Haversine distance in km. Returns None if lat2/lng2 are missing."""
+    if lat2 is None or lng2 is None:
+        return None
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    c = 2 * math.asin(math.sqrt(a))
+    return R * c
+
+
 @router.get("", response_model=LeadListResponse)
 async def list_leads(
     status: Optional[LeadStatus] = None,
     city: Optional[str] = None,
     search: Optional[str] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=5000),
+    page_size: int = Query(100, ge=1, le=5000),
+    lat: Optional[float] = Query(None, description="Reference latitude for distance sorting"),
+    lng: Optional[float] = Query(None, description="Reference longitude for distance sorting"),
+    sort_by: str = Query("score", enum=["score", "distance", "score_distance"]),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List leads with optional filtering."""
+    """List leads with optional filtering, geo-sorting and smart ranking."""
     query = select(Lead)
 
     # Non-admin users only see their own leads
@@ -70,20 +86,58 @@ async def list_leads(
         query = query.where(Lead.city.ilike(f"%{city}%"))
     if search:
         query = query.where(Lead.business_name.ilike(f"%{search}%"))
-    
-    # Count total
+
+    # Count total before pagination / sorting
     count_query = select(func.count()).select_from(query.subquery())
-    total = await db.scalar(count_query)
-    
-    # Pagination
-    query = query.order_by(Lead.created_at.desc())
+    total = await db.scalar(count_query) or 0
+
+    # Determine if we need to fetch all items for Python-side geo sorting
+    needs_geo_sort = lat is not None and lng is not None and sort_by in ("distance", "score_distance")
+
+    if needs_geo_sort:
+        # Fetch all filtered leads (capped at 2000 for performance)
+        query = query.limit(2000)
+        result = await db.execute(query)
+        leads = list(result.scalars().all())
+
+        # Compute distance for each lead
+        for lead in leads:
+            lead.distance_km = _haversine_km(lat, lng, lead.latitude, lead.longitude)
+
+        # Sort
+        if sort_by == "distance":
+            leads.sort(key=lambda l: (l.distance_km if l.distance_km is not None else float("inf"), - (l.total_score or 0)))
+        elif sort_by == "score_distance":
+            # Primary: higher score first; Secondary: closer distance first
+            leads.sort(key=lambda l: (- (l.total_score or 0), l.distance_km if l.distance_km is not None else float("inf")))
+
+        # Python-side pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_leads = leads[start:end]
+
+        return LeadListResponse(
+            total=total,
+            items=paginated_leads,
+            page=page,
+            page_size=page_size,
+        )
+
+    # Standard SQL-side sorting (no geo reference)
+    if sort_by == "score":
+        query = query.order_by(Lead.total_score.desc().nulls_last(), Lead.created_at.desc())
+    elif sort_by == "score_distance" and (lat is None or lng is None):
+        # Fallback to score-only if lat/lng missing
+        query = query.order_by(Lead.total_score.desc().nulls_last(), Lead.created_at.desc())
+    else:
+        query = query.order_by(Lead.created_at.desc())
+
     query = query.offset((page - 1) * page_size).limit(page_size)
-    
     result = await db.execute(query)
     leads = result.scalars().all()
-    
+
     return LeadListResponse(
-        total=total or 0,
+        total=total,
         items=leads,
         page=page,
         page_size=page_size,
