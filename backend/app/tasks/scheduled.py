@@ -129,7 +129,7 @@ async def _enrich_pending_leads_async():
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(Lead)
-            .where(Lead.status == LeadStatus.DISCOVERED)
+            .where(Lead.status == LeadStatus.DISCOVERED.name)
             .where(Lead.do_not_contact == False)
             .limit(20)
         )
@@ -256,7 +256,7 @@ async def _generate_daily_report_async():
         # Meetings booked
         meetings_booked = await db.scalar(
             select(func.count(Lead.id))
-            .where(Lead.status == LeadStatus.MEETING_BOOKED)
+            .where(Lead.status == LeadStatus.MEETING_BOOKED.name)
         )
 
         # Conversion rate

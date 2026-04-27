@@ -11,8 +11,33 @@ interface DiscoveryFormProps {
 export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
   const [query, setQuery] = useState("");
   const [city, setCity] = useState("Denver");
-  const [state, setState] = useState("CO");
+  const [state, setState] = useState("Colorado");
   const [maxResults, setMaxResults] = useState(50);
+
+  const COLORADO_CITIES = [
+    "Aurora", "Boulder", "Broomfield", "Castle Rock", "Centennial",
+    "Colorado Springs", "Commerce City", "Denver", "Englewood", "Fort Collins",
+    "Grand Junction", "Greeley", "Highlands Ranch", "Lakewood", "Littleton",
+    "Longmont", "Loveland", "Parker", "Pueblo", "Thornton",
+    "Westminster", "Arvada", "Brighton", "Canon City", "Durango",
+    "Golden", "La Junta", "Lafayette", "Louisville", "Montrose"
+  ];
+
+  const US_STATES = [
+    "Alabama", "Alaska", "Arizona", "Arkansas", "California",
+    "Colorado", "Connecticut", "Delaware", "Florida", "Georgia",
+    "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa",
+    "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
+    "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri",
+    "Montana", "Nebraska", "Nevada", "New Hampshire", "New Jersey",
+    "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio",
+    "Oklahoma", "Oregon", "Pennsylvania", "Rhode Island", "South Carolina",
+    "South Dakota", "Tennessee", "Texas", "Utah", "Vermont",
+    "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
+    "District of Columbia"
+  ];
+
+  const MAX_RESULTS_OPTIONS = [10, 25, 50, 100, 200];
   const [sources, setSources] = useState<string[]>(["google_maps"]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -73,32 +98,39 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Ciudad</label>
-            <input
-              type="text"
+            <select
               value={city}
               onChange={(e) => setCity(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
-            />
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
+            >
+              {COLORADO_CITIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm text-gray-400 mb-1">Estado</label>
-            <input
-              type="text"
+            <select
               value={state}
               onChange={(e) => setState(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
-            />
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
+            >
+              {US_STATES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-sm text-gray-400 mb-1">Max resultados</label>
-            <input
-              type="number"
+            <select
               value={maxResults}
               onChange={(e) => setMaxResults(Number(e.target.value))}
-              min={1}
-              max={500}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
-            />
+              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
+            >
+              {MAX_RESULTS_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
           </div>
         </div>
 

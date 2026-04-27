@@ -170,6 +170,7 @@ const KanbanColumn = memo(function KanbanColumn({
 
   const {
     data,
+    error,
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
@@ -221,7 +222,11 @@ const KanbanColumn = memo(function KanbanColumn({
         style={{ contain: "strict" }}
         onScroll={onScroll}
       >
-        {isLoading && stageLeads.length === 0 ? (
+        {error ? (
+          <div className="text-center py-8 text-red-400 text-xs">
+            Error cargando leads
+          </div>
+        ) : isLoading && stageLeads.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-5 h-5 animate-spin text-eko-blue" />
           </div>

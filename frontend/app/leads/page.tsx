@@ -58,7 +58,8 @@ function haversineKm(lat1: number, lng1: number, lat2?: number, lng2?: number): 
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dlng / 2) *
       Math.sin(dlng / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const clampedA = Math.min(1.0, Math.max(0.0, a));
+  const c = 2 * Math.atan2(Math.sqrt(clampedA), Math.sqrt(1 - clampedA));
   return R * c;
 }
 
@@ -90,6 +91,7 @@ export default function LeadsPage() {
   const [totalLeads, setTotalLeads] = useState(0);
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<SortMode>("score_distance");
+  const [error, setError] = useState<string | null>(null);
 
   // Headquarters
   const [hqAddress, setHqAddress] = useState(DEFAULT_HQ_ADDRESS);
@@ -132,7 +134,7 @@ export default function LeadsPage() {
   // Fetch leads
   useEffect(() => {
     loadLeads();
-  }, [status, page, sortBy, hqCoords]);
+  }, [status, page, sortBy, hqCoords, search, semanticMode]);
 
   // Enrichment polling
   useEffect(() => {
@@ -244,6 +246,7 @@ export default function LeadsPage() {
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       let items: Lead[] = [];
       let total = 0;
@@ -253,14 +256,12 @@ export default function LeadsPage() {
         items = res.data.items || [];
         total = items.length;
       } else {
-        // Temporary larger page_size when sorting so client-side fallback works well
-        // until backend deploy catches up with sort_by support
         const needsClientSort = sortBy !== "score" || !hqCoords;
         const params: any = {
           status: status || undefined,
           search: search || undefined,
-          page_size: sortBy !== "score" ? 500 : 100,
-          page: sortBy !== "score" ? 1 : page,
+          page_size: needsClientSort ? 500 : 100,
+          page: needsClientSort ? 1 : page,
           sort_by: sortBy,
         };
         if (hqCoords && sortBy !== "score") {
@@ -271,11 +272,8 @@ export default function LeadsPage() {
         items = res.data.items || [];
         total = res.data.total || 0;
 
-        // Client-side sort fallback (backend may not support sort_by yet)
-        items = applyClientSort(items);
-
-        // Apply pagination after client-side sort
-        if (sortBy !== "score") {
+        if (needsClientSort) {
+          items = applyClientSort(items);
           const pageSize = 100;
           const start = (page - 1) * pageSize;
           const end = start + pageSize;
@@ -285,8 +283,9 @@ export default function LeadsPage() {
 
       setLeads(items);
       setTotalLeads(total);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError(err.response?.data?.detail || "Error cargando leads");
     } finally {
       setLoading(false);
     }
@@ -573,6 +572,10 @@ export default function LeadsPage() {
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-eko-blue" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-20 text-red-400">
+            <p>{error}</p>
           </div>
         ) : leads.length === 0 ? (
           <div className="text-center py-20 text-gray-500">

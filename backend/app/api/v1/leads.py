@@ -31,13 +31,13 @@ async def enrichment_status(
 ):
     """Return counts of leads by enrichment status."""
     discovered = await db.scalar(
-        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.DISCOVERED)
+        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.DISCOVERED.name)
     )
     enriched = await db.scalar(
-        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.ENRICHED)
+        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.ENRICHED.name)
     )
     scored = await db.scalar(
-        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.SCORED)
+        select(func.count()).select_from(Lead).where(Lead.status == LeadStatus.SCORED.name)
     )
     return {
         "discovered": discovered,
@@ -54,6 +54,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: Optional[float], lng2: Optiona
     dlat = math.radians(lat2 - lat1)
     dlng = math.radians(lng2 - lng1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng / 2) ** 2
+    a = min(1.0, max(0.0, a))  # Clamp to protect against floating-point drift
     c = 2 * math.asin(math.sqrt(a))
     return R * c
 
@@ -81,7 +82,7 @@ async def list_leads(
         )
 
     if status:
-        query = query.where(Lead.status == status)
+        query = query.where(Lead.status == status.name)
     if city:
         query = query.where(Lead.city.ilike(f"%{city}%"))
     if search:
@@ -391,7 +392,7 @@ async def search_leads(
     )
 
     if request.status:
-        query = query.where(Lead.status == request.status)
+        query = query.where(Lead.status == request.status.name)
     if request.min_score is not None:
         query = query.where(Lead.total_score >= request.min_score)
 
