@@ -61,6 +61,8 @@ export const leadsApi = {
   discover: (data: any) => api.post("/leads/discover", data),
   search: (data: { query: string; limit?: number; status?: string; min_score?: number }) =>
     api.post("/leads/search", data),
+  autocomplete: (q: string, limit?: number) =>
+    api.get("/leads/autocomplete/names", { params: { q, limit } }),
 };
 
 // CRM API

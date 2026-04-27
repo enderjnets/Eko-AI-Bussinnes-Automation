@@ -125,10 +125,10 @@ async def list_leads(
 
     # Standard SQL-side sorting (no geo reference)
     if sort_by == "score":
-        query = query.order_by(Lead.total_score.desc().nulls_last(), Lead.created_at.desc())
+        query = query.order_by(func.coalesce(Lead.total_score, 0).desc(), Lead.created_at.desc())
     elif sort_by == "score_distance" and (lat is None or lng is None):
         # Fallback to score-only if lat/lng missing
-        query = query.order_by(Lead.total_score.desc().nulls_last(), Lead.created_at.desc())
+        query = query.order_by(func.coalesce(Lead.total_score, 0).desc(), Lead.created_at.desc())
     else:
         query = query.order_by(Lead.created_at.desc())
 
@@ -142,6 +142,30 @@ async def list_leads(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/autocomplete/names", response_model=list[str])
+async def autocomplete_lead_names(
+    q: str = Query(..., min_length=1, description="Search prefix"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Return matching business names for autocomplete."""
+    query = (
+        select(Lead.business_name)
+        .where(Lead.business_name.ilike(f"%{q}%"))
+        .distinct()
+        .limit(limit)
+    )
+    # Non-admin users only see their own leads
+    if not current_user.is_superuser and current_user.role.value != "admin":
+        query = query.where(
+            (Lead.owner_id == current_user.id) | (Lead.assigned_to == current_user.email)
+        )
+
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 @router.get("/{lead_id}", response_model=LeadResponse)

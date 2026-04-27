@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search,
   Filter,
@@ -34,6 +34,8 @@ interface Lead {
   urgency_score: number;
   fit_score: number;
   total_score: number;
+  latitude?: number;
+  longitude?: number;
   distance_km?: number;
   created_at: string;
 }
@@ -43,6 +45,22 @@ const HQ_STORAGE_KEY = "eko_hq_address";
 const HQ_COORDS_KEY = "eko_hq_coords";
 
 type SortMode = "score" | "distance" | "score_distance";
+
+// Client-side Haversine (km)
+function haversineKm(lat1: number, lng1: number, lat2?: number, lng2?: number): number | null {
+  if (lat2 == null || lng2 == null) return null;
+  const R = 6371;
+  const dlat = ((lat2 - lat1) * Math.PI) / 180;
+  const dlng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dlat / 2) * Math.sin(dlat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dlng / 2) *
+      Math.sin(dlng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
   if (!address.trim()) return null;
@@ -73,14 +91,21 @@ export default function LeadsPage() {
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<SortMode>("score_distance");
 
-  // Headquarters address & coordinates
+  // Headquarters
   const [hqAddress, setHqAddress] = useState(DEFAULT_HQ_ADDRESS);
   const [hqCoords, setHqCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [editingHq, setEditingHq] = useState(false);
   const [hqInput, setHqInput] = useState(DEFAULT_HQ_ADDRESS);
   const [geocoding, setGeocoding] = useState(false);
 
-  // Load HQ from localStorage on mount
+  // Autocomplete
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const autocompleteRef = useRef<HTMLDivElement>(null);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Load HQ from localStorage
   useEffect(() => {
     const savedAddr = localStorage.getItem(HQ_STORAGE_KEY);
     const savedCoords = localStorage.getItem(HQ_COORDS_KEY);
@@ -92,10 +117,9 @@ export default function LeadsPage() {
       try {
         setHqCoords(JSON.parse(savedCoords));
       } catch {
-        // ignore parse errors
+        /* ignore */
       }
     } else {
-      // Geocode default on first load
       geocodeAddress(savedAddr || DEFAULT_HQ_ADDRESS).then((coords) => {
         if (coords) {
           setHqCoords(coords);
@@ -105,16 +129,53 @@ export default function LeadsPage() {
     }
   }, []);
 
-  // Fetch leads whenever filters, page, sort, or HQ coords change
+  // Fetch leads
   useEffect(() => {
     loadLeads();
   }, [status, page, sortBy, hqCoords]);
 
+  // Enrichment polling
   useEffect(() => {
     loadEnrichmentStatus();
     const interval = setInterval(loadEnrichmentStatus, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Close autocomplete on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Autocomplete debounce
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!search.trim() || semanticMode) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(async () => {
+      setSuggestLoading(true);
+      try {
+        const res = await leadsApi.autocomplete(search.trim(), 8);
+        setSuggestions(res.data || []);
+        setShowSuggestions((res.data || []).length > 0);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 250);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search, semanticMode]);
 
   const loadEnrichmentStatus = async () => {
     try {
@@ -129,44 +190,111 @@ export default function LeadsPage() {
         loadLeads();
       }
       setEnrichmentStatus(newStatus);
-    } catch (err) {
+    } catch {
       // silently fail
     }
   };
 
+  const applyClientSort = useCallback(
+    (items: Lead[]): Lead[] => {
+      if (!items.length) return items;
+      const arr = [...items];
+
+      if (sortBy === "score") {
+        arr.sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+        return arr;
+      }
+
+      if (sortBy === "distance" && hqCoords) {
+        arr.forEach((l) => {
+          l.distance_km = haversineKm(hqCoords.lat, hqCoords.lng, l.latitude, l.longitude) ?? undefined;
+        });
+        arr.sort((a, b) => {
+          const da = a.distance_km ?? Infinity;
+          const db = b.distance_km ?? Infinity;
+          if (da !== db) return da - db;
+          return (b.total_score || 0) - (a.total_score || 0);
+        });
+        return arr;
+      }
+
+      if (sortBy === "score_distance" && hqCoords) {
+        arr.forEach((l) => {
+          l.distance_km = haversineKm(hqCoords.lat, hqCoords.lng, l.latitude, l.longitude) ?? undefined;
+        });
+        arr.sort((a, b) => {
+          const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
+          if (scoreDiff !== 0) return scoreDiff;
+          const da = a.distance_km ?? Infinity;
+          const db = b.distance_km ?? Infinity;
+          return da - db;
+        });
+        return arr;
+      }
+
+      if (sortBy === "score_distance") {
+        arr.sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+        return arr;
+      }
+
+      return arr;
+    },
+    [sortBy, hqCoords]
+  );
+
   const loadLeads = useCallback(async () => {
     setLoading(true);
     try {
-      let res;
+      let items: Lead[] = [];
+      let total = 0;
+
       if (semanticMode && search.trim()) {
-        res = await leadsApi.search({ query: search.trim(), status: status || undefined });
-        setLeads(res.data.items || []);
-        setTotalLeads(res.data.items?.length || 0);
+        const res = await leadsApi.search({ query: search.trim(), status: status || undefined });
+        items = res.data.items || [];
+        total = items.length;
       } else {
+        // Temporary larger page_size when sorting so client-side fallback works well
+        // until backend deploy catches up with sort_by support
+        const needsClientSort = sortBy !== "score" || !hqCoords;
         const params: any = {
           status: status || undefined,
           search: search || undefined,
-          page_size: 100,
-          page,
+          page_size: sortBy !== "score" ? 500 : 100,
+          page: sortBy !== "score" ? 1 : page,
           sort_by: sortBy,
         };
         if (hqCoords && sortBy !== "score") {
           params.lat = hqCoords.lat;
           params.lng = hqCoords.lng;
         }
-        res = await leadsApi.list(params);
-        setLeads(res.data.items || []);
-        setTotalLeads(res.data.total || 0);
+        const res = await leadsApi.list(params);
+        items = res.data.items || [];
+        total = res.data.total || 0;
+
+        // Client-side sort fallback (backend may not support sort_by yet)
+        items = applyClientSort(items);
+
+        // Apply pagination after client-side sort
+        if (sortBy !== "score") {
+          const pageSize = 100;
+          const start = (page - 1) * pageSize;
+          const end = start + pageSize;
+          items = items.slice(start, end);
+        }
       }
+
+      setLeads(items);
+      setTotalLeads(total);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [search, status, page, sortBy, hqCoords, semanticMode]);
+  }, [search, status, page, sortBy, hqCoords, semanticMode, applyClientSort]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setShowSuggestions(false);
     setPage(1);
     loadLeads();
   };
@@ -197,7 +325,7 @@ export default function LeadsPage() {
       setPage(1);
       loadLeads();
     } else {
-      alert("No se pudo geocodificar la dirección. Intenta con un formato más específico (ej: Calle, Ciudad, Estado ZIP).");
+      alert("No se pudo geocodificar la dirección. Intenta con un formato más específico.");
     }
   };
 
@@ -217,7 +345,6 @@ export default function LeadsPage() {
   return (
     <div className="min-h-screen bg-eko-graphite">
       <Navbar />
-      {/* Enrichment toast notification */}
       {showEnrichmentToast && (
         <div className="fixed top-20 right-4 z-50 animate-in slide-in-from-top-2">
           <div className="rounded-lg bg-eko-green/90 backdrop-blur border border-eko-green/50 px-4 py-3 shadow-lg">
@@ -235,7 +362,6 @@ export default function LeadsPage() {
             <p className="text-gray-400 text-sm">Gestiona y enriquece tus prospectos</p>
           </div>
 
-          {/* Headquarters address */}
           <div className="flex items-center gap-2 text-sm">
             <Target className="w-4 h-4 text-eko-blue" />
             {editingHq ? (
@@ -277,21 +403,47 @@ export default function LeadsPage() {
 
         {/* Smart Filter Bar */}
         <form onSubmit={handleSearch} className="flex flex-wrap gap-3 mb-6">
-          <div className="relative flex-1 min-w-[200px]">
+          <div className="relative flex-1 min-w-[200px]" ref={autocompleteRef}>
             {semanticMode ? (
-              <Brain className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-eko-green" />
+              <Brain className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-eko-green z-10" />
             ) : (
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 z-10" />
             )}
             <input
               type="text"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setShowSuggestions(true); }}
+              onFocus={() => search.trim() && suggestions.length > 0 && setShowSuggestions(true)}
               placeholder={semanticMode ? "Búsqueda semántica (ej: restaurantes con malas reseñas)..." : "Buscar por nombre, ciudad, dirección..."}
-              className={`w-full rounded-lg border bg-white/5 pl-10 pr-4 py-2.5 text-sm focus:outline-none ${
+              className={`w-full rounded-lg border bg-white/5 pl-10 pr-4 py-2.5 text-sm focus:outline-none relative z-0 ${
                 semanticMode ? "border-eko-green/50 focus:border-eko-green focus:ring-1 focus:ring-eko-green" : "border-white/10 focus:border-eko-blue"
               }`}
             />
+            {suggestLoading && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-gray-500" />
+            )}
+
+            {/* Autocomplete dropdown */}
+            {showSuggestions && !semanticMode && (
+              <div className="absolute top-full left-0 right-0 mt-1 rounded-lg border border-white/10 bg-eko-graphite shadow-xl z-50 overflow-hidden">
+                {suggestions.map((s, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setSearch(s);
+                      setShowSuggestions(false);
+                      setPage(1);
+                      loadLeads();
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-white/5 transition-colors"
+                  >
+                    <span className="font-medium text-white">{s.slice(0, search.length)}</span>
+                    <span>{s.slice(search.length)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <button
@@ -341,7 +493,7 @@ export default function LeadsPage() {
           </button>
         </form>
 
-        {/* Bulk enrich button */}
+        {/* Bulk enrich */}
         <div className="flex items-center justify-between mb-4">
           {enrichmentStatus && enrichmentStatus.discovered > 0 && (
             <button
