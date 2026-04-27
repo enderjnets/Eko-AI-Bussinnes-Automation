@@ -1,12 +1,38 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-26
-**Current version**: 0.6.2
-**Current phase**: Sort Fix + Autocomplete + Deploy Hardening ✅ Complete
+**Current version**: 0.6.3
+**Current phase**: Discovery Dropdowns + Pipeline Fix + Leads Geo-Crash Fix ✅ Complete
 
 ---
 
 ## What was done (this session)
+
+### v0.6.3 — Discovery Dropdowns + Pipeline Enum Fix + Leads Geo-Crash Fix — COMPLETED
+
+#### Discovery Dropdowns (Homepage)
+- **City** — Converted to `<select>` with 30 Colorado cities (Aurora, Boulder, Denver, etc.)
+- **State** — Converted to `<select>` with all 50 US states + DC
+- **Max results** — Converted to `<select>` with options `[10, 25, 50, 100, 200]`
+- These were documented in v0.6.0 changelog but never actually implemented
+
+#### Pipeline Kanban Fix (Empty Columns)
+- **Root cause**: SQLAlchemy `Enum` stores Python enum **names** (`DISCOVERED`) in PostgreSQL native enum, not **values** (`discovered`). When `useColumnLeads` sent `?status=discovered`, the backend query `Lead.status == status` generated `WHERE status = 'discovered'` which is invalid in the PG enum.
+- **Fix**: Changed all backend `Lead.status` comparisons to use `.name` (`status.name`, `LeadStatus.DISCOVERED.name`) across:
+  - `backend/app/api/v1/leads.py` (list, enrichment_status, search)
+  - `backend/app/api/v1/analytics.py` (contacted count, closed_won count)
+  - `backend/app/tasks/scheduled.py` (enrichment task, daily reports)
+- **Frontend hardening**: Added `error` state to `KanbanColumn` — API failures now show "Error cargando leads" instead of silently showing "No leads"
+
+#### `/leads` Page No Results Fix
+- **Root cause**: Backend `_haversine_km` used `math.asin(math.sqrt(a))` without clamping `a` to `[0, 1]`. Floating-point drift produced `a > 1`, causing `ValueError` → HTTP 500.
+- **Fix**: Clamped `a = min(1.0, max(0.0, a))` in both backend and frontend haversine functions
+- **Frontend improvements**:
+  - `needsClientSort` now used correctly (was dead code)
+  - Added visible `error` state instead of silently swallowing API failures
+  - Fixed `useEffect` dependencies to include `search` and `semanticMode`
+
+---
 
 ### v0.6.2 — Client-Side Sort Fix + Autocomplete + Deploy — COMPLETED
 
