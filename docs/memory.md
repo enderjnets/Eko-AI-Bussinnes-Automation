@@ -1,12 +1,22 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-26
-**Current version**: 0.6.3
-**Current phase**: Discovery Dropdowns + Pipeline Fix + Leads Geo-Crash Fix ✅ Complete
+**Current version**: 0.6.4
+**Current phase**: Discovery Dynamic City Field ✅ Complete
 
 ---
 
 ## What was done (this session)
+
+### v0.6.4 — Discovery Dynamic City Field — COMPLETED
+
+#### DiscoveryForm City Field
+- **Colorado selected** → `<select>` dropdown with 30 Colorado cities
+- **Any other state selected** → `<input type="text">` free-text field for city
+- **State change handler** resets city to `"Denver"` when switching to Colorado, or `""` when switching to another state
+- Prevents impossible combinations like "Denver, California"
+
+---
 
 ### v0.6.3 — Discovery Dropdowns + Pipeline Enum Fix + Leads Geo-Crash Fix — COMPLETED
 
