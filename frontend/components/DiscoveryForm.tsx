@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Search, Loader2, MapPin, Star, Linkedin, Landmark } from "lucide-react";
 import { leadsApi } from "@/lib/api";
+import { CITIES_BY_STATE } from "@/lib/us-cities";
 
 interface DiscoveryFormProps {
   onSuccess?: (data: any) => void;
@@ -16,21 +17,13 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
 
   const handleStateChange = (newState: string) => {
     setState(newState);
-    if (newState === "Colorado") {
-      setCity("Denver");
+    const cities = CITIES_BY_STATE[newState];
+    if (cities && cities.length > 0) {
+      setCity(cities[0]);
     } else {
       setCity("");
     }
   };
-
-  const COLORADO_CITIES = [
-    "Aurora", "Boulder", "Broomfield", "Castle Rock", "Centennial",
-    "Colorado Springs", "Commerce City", "Denver", "Englewood", "Fort Collins",
-    "Grand Junction", "Greeley", "Highlands Ranch", "Lakewood", "Littleton",
-    "Longmont", "Loveland", "Parker", "Pueblo", "Thornton",
-    "Westminster", "Arvada", "Brighton", "Canon City", "Durango",
-    "Golden", "La Junta", "Lafayette", "Louisville", "Montrose"
-  ];
 
   const US_STATES = [
     "Alabama", "Alaska", "Arizona", "Arkansas", "California",
@@ -107,13 +100,13 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Ciudad</label>
-            {state === "Colorado" ? (
+            {CITIES_BY_STATE[state] && CITIES_BY_STATE[state].length > 0 ? (
               <select
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
               >
-                {COLORADO_CITIES.map((c) => (
+                {CITIES_BY_STATE[state].map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
