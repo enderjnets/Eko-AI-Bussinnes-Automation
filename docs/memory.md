@@ -1,12 +1,23 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-26
-**Current version**: 0.6.4
-**Current phase**: Discovery Dynamic City Field ✅ Complete
+**Current version**: 0.6.5
+**Current phase**: Discovery City Dropdowns for All States ✅ Complete
 
 ---
 
 ## What was done (this session)
+
+### v0.6.5 — Discovery City Dropdowns for All 51 States — COMPLETED
+
+#### DiscoveryForm City Dropdowns (All States)
+- Created `frontend/lib/us-cities.ts` with **~600 cities** across all 51 US states + DC
+- Each state has 10-15 of its most populous/well-known cities
+- City dropdown now dynamically updates for **any** state selected
+- State change handler resets city to the first city of the newly selected state
+- Fallback to free-text input if a state has no entries (defensive)
+
+---
 
 ### v0.6.4 — Discovery Dynamic City Field — COMPLETED
 
