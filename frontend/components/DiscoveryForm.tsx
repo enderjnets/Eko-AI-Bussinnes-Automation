@@ -14,6 +14,15 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
   const [state, setState] = useState("Colorado");
   const [maxResults, setMaxResults] = useState(50);
 
+  const handleStateChange = (newState: string) => {
+    setState(newState);
+    if (newState === "Colorado") {
+      setCity("Denver");
+    } else {
+      setCity("");
+    }
+  };
+
   const COLORADO_CITIES = [
     "Aurora", "Boulder", "Broomfield", "Castle Rock", "Centennial",
     "Colorado Springs", "Commerce City", "Denver", "Englewood", "Fort Collins",
@@ -98,21 +107,31 @@ export default function DiscoveryForm({ onSuccess }: DiscoveryFormProps) {
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="block text-sm text-gray-400 mb-1">Ciudad</label>
-            <select
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
-            >
-              {COLORADO_CITIES.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
+            {state === "Colorado" ? (
+              <select
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
+              >
+                {COLORADO_CITIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="Ej: Los Angeles, Miami..."
+                className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
+              />
+            )}
           </div>
           <div>
             <label className="block text-sm text-gray-400 mb-1">Estado</label>
             <select
               value={state}
-              onChange={(e) => setState(e.target.value)}
+              onChange={(e) => handleStateChange(e.target.value)}
               className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none appearance-none"
             >
               {US_STATES.map((s) => (
