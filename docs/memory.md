@@ -1,12 +1,32 @@
 # Project Memory — Eko AI Business Automation
 
 **Last updated**: 2026-04-26
-**Current version**: 0.6.5
-**Current phase**: Discovery City Dropdowns for All States ✅ Complete
+**Current version**: 0.6.7
+**Current phase**: Discovery Complete US Cities Dataset ✅ Complete
 
 ---
 
 ## What was done (this session)
+
+### v0.6.7 — Complete US Cities Dataset from Census Bureau — COMPLETED
+
+#### DiscoveryForm All States Expanded
+- Generated city dataset from **US Census Bureau 2019 population data** (~19,500 places)
+- **Top 30 cities per state** by population
+- All states and cities **sorted alphabetically**
+- Cleaned census suffixes: removed "city", "town", "CDP", "balance", "borough", etc.
+- Fixed special cases: Nashville, Louisville, Lexington, Augusta, Macon, Butte, Winston-Salem, etc.
+- Total: **51 states + DC = ~1,415 cities**
+
+---
+
+### v0.6.6 — Added Greenwood Village + expanded Colorado cities — COMPLETED
+
+#### DiscoveryForm Colorado Cities
+- Added 15 more Colorado cities: Highlands Ranch, Parker, Castle Rock, Littleton, Englewood, Arvada, Brighton, Commerce City, Wheat Ridge, Greenwood Village, Lafayette, Louisville, Golden, Durango, Montrose
+- Colorado now has 30 cities total (was 15)
+
+---
 
 ### v0.6.5 — Discovery City Dropdowns for All 51 States — COMPLETED
 
