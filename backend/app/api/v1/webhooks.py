@@ -1,13 +1,24 @@
-from fastapi import APIRouter, Request, Depends, Query
+import hmac
+import hashlib
+import json
+import logging
+from datetime import datetime
+
+import httpx
+from fastapi import APIRouter, Request, Depends, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.models.lead import Lead, Interaction
+from app.models.lead import Lead, LeadStatus, Interaction
 from app.models.campaign import Campaign
 from app.models.phone_call import PhoneCall
+from app.config import get_settings
+from app.services.reply_analyzer import analyze_email_reply, determine_status_from_intent
 
 router = APIRouter()
+settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/resend")
@@ -326,3 +337,235 @@ async def _handle_status_update(call_data, lead, interaction, db):
 async def _handle_conversation_update(call_data, lead, interaction, db):
     """Process conversation update from VAPI."""
     return {"status": "processed", "type": "conversation-update"}
+
+
+# ---------------------------------------------------------------------------
+# Resend Inbound Email Webhook
+# ---------------------------------------------------------------------------
+
+async def _verify_resend_signature(payload_bytes: bytes, signature_header: str) -> bool:
+    """Verify Resend webhook signature using HMAC-SHA256."""
+    secret = settings.RESEND_WEBHOOK_SECRET
+    if not secret:
+        logger.warning("RESEND_WEBHOOK_SECRET not set, skipping signature verification")
+        return True
+    
+    try:
+        expected_signature = hmac.new(
+            secret.encode("utf-8"),
+            payload_bytes,
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected_signature, signature_header)
+    except Exception as e:
+        logger.error(f"Error verifying webhook signature: {e}")
+        return False
+
+
+async def _fetch_email_body_from_resend(email_id: str) -> dict:
+    """Fetch the full email content (text + html) from Resend API."""
+    api_key = settings.RESEND_API_KEY
+    if not api_key:
+        logger.warning("RESEND_API_KEY not set, cannot fetch email body")
+        return {}
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Try the receiving API first (for inbound emails)
+            response = await client.get(
+                f"https://api.resend.com/emails/{email_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "text": data.get("text", ""),
+                    "html": data.get("html", ""),
+                    "subject": data.get("subject", ""),
+                    "from": data.get("from", ""),
+                    "to": data.get("to", []),
+                }
+            else:
+                logger.warning(f"Failed to fetch email body: {response.status_code} {response.text}")
+                return {}
+    except Exception as e:
+        logger.error(f"Error fetching email body from Resend: {e}")
+        return {}
+
+
+@router.post("/resend-inbound")
+async def resend_inbound_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Handle Resend inbound email webhooks.
+    
+    Receives emails sent to contact@biz.ekoaiautomation.com,
+    creates Interaction records, runs AI analysis, and updates lead status.
+    """
+    # Read raw payload for signature verification
+    payload_bytes = await request.body()
+    
+    # Verify signature if secret is configured
+    signature = request.headers.get("Resend-Signature", "")
+    if settings.RESEND_WEBHOOK_SECRET and not await _verify_resend_signature(payload_bytes, signature):
+        logger.warning("Invalid webhook signature")
+        return Response(status_code=401, content="Invalid signature")
+    
+    try:
+        payload = json.loads(payload_bytes)
+    except json.JSONDecodeError:
+        logger.error("Invalid JSON payload")
+        return Response(status_code=400, content="Invalid JSON")
+    
+    event_type = payload.get("type")
+    if event_type != "email.received":
+        logger.info(f"Ignoring non-inbound event: {event_type}")
+        return {"status": "ignored", "reason": f"event type {event_type} not handled"}
+    
+    data = payload.get("data", {})
+    email_id = data.get("email_id")
+    from_email_raw = data.get("from", "")
+    to_emails = data.get("to", [])
+    subject = data.get("subject", "")
+    
+    # Parse from email (may be "Name <email@domain.com>")
+    from_email = from_email_raw
+    if "<" in from_email_raw and ">" in from_email_raw:
+        from_email = from_email_raw.split("<")[1].split(">")[0].strip().lower()
+    else:
+        from_email = from_email_raw.strip().lower()
+    
+    # Skip emails from our own domain (loop prevention)
+    inbound_domain = settings.RESEND_INBOUND_DOMAIN or "biz.ekoaiautomation.com"
+    if from_email.endswith(f"@{inbound_domain}") or from_email.endswith("@ekoai.com"):
+        logger.info(f"Ignoring email from own domain: {from_email}")
+        return {"status": "ignored", "reason": "own domain"}
+    
+    # Fetch full email body from Resend API
+    email_body_data = {}
+    if email_id:
+        email_body_data = await _fetch_email_body_from_resend(email_id)
+    
+    email_text = email_body_data.get("text", "")
+    email_html = email_body_data.get("html", "")
+    # Use text body for analysis, fallback to html stripped
+    body_for_analysis = email_text or email_html or ""
+    
+    # Find lead by sender email
+    result = await db.execute(select(Lead).where(Lead.email == from_email))
+    lead = result.scalar_one_or_none()
+    
+    # Create lead if not found and auto-create is enabled
+    if not lead and settings.AUTO_CREATE_LEAD_FROM_INBOUND:
+        # Extract business name from email or from field
+        business_name = from_email_raw
+        if "<" in from_email_raw:
+            business_name = from_email_raw.split("<")[0].strip() or from_email.split("@")[0]
+        else:
+            business_name = from_email.split("@")[0]
+        
+        lead = Lead(
+            business_name=business_name,
+            email=from_email,
+            source="manual",  # Using MANUAL source since it's an inbound inquiry
+            status=LeadStatus.DISCOVERED,
+            notes=f"Auto-created from inbound email to {', '.join(to_emails)}",
+        )
+        db.add(lead)
+        await db.commit()
+        await db.refresh(lead)
+        logger.info(f"Auto-created lead {lead.id} from inbound email: {from_email}")
+    
+    if not lead:
+        logger.warning(f"No lead found for {from_email} and auto-create disabled")
+        return {"status": "ignored", "reason": "no lead found"}
+    
+    # Find the most recent outbound email to this lead for context
+    last_email_result = await db.execute(
+        select(Interaction)
+        .where(Interaction.lead_id == lead.id)
+        .where(Interaction.interaction_type == "email")
+        .where(Interaction.direction == "outbound")
+        .order_by(Interaction.created_at.desc())
+        .limit(1)
+    )
+    last_email = last_email_result.scalar_one_or_none()
+    
+    # AI analysis
+    analysis = {}
+    if body_for_analysis:
+        try:
+            analysis = await analyze_email_reply(
+                reply_text=body_for_analysis,
+                lead_name=lead.business_name,
+                business_name=lead.business_name,
+                previous_email_subject=last_email.subject if last_email else None,
+            )
+        except Exception as e:
+            logger.error(f"AI analysis failed: {e}")
+    
+    # Determine status change
+    new_status = None
+    previous_status = None
+    if lead.status:
+        previous_status = lead.status.value
+        new_status_value = determine_status_from_intent(
+            analysis.get("intent", ""),
+            previous_status,
+        )
+        if new_status_value:
+            try:
+                lead.status = LeadStatus(new_status_value)
+                new_status = new_status_value
+            except ValueError:
+                pass
+    
+    # Create interaction
+    meta = {
+        "email_id": email_id,
+        "from": from_email_raw,
+        "to": to_emails,
+        "inbound": True,
+        "source": "resend_inbound",
+        "sentiment": analysis.get("sentiment"),
+        "intent": analysis.get("intent"),
+        "summary": analysis.get("summary"),
+        "next_action": analysis.get("next_action"),
+        "priority": analysis.get("priority", "medium"),
+        "key_points": analysis.get("key_points", []),
+        "read": False,
+        "auto_status_changed": new_status is not None,
+        "previous_status": previous_status,
+        "new_status": new_status,
+        "html": email_html[:5000] if email_html else None,  # Store preview only
+    }
+    
+    interaction = Interaction(
+        lead_id=lead.id,
+        interaction_type="email",
+        direction="inbound",
+        subject=subject,
+        content=body_for_analysis[:10000] if body_for_analysis else "",
+        email_message_id=email_id,
+        ai_summary=analysis.get("summary"),
+        ai_next_action=analysis.get("next_action"),
+        meta=meta,
+    )
+    db.add(interaction)
+    
+    # Update lead engagement
+    lead.last_contact_at = datetime.utcnow()
+    
+    await db.commit()
+    
+    logger.info(
+        f"Processed inbound email from {from_email} for lead {lead.id}: "
+        f"intent={analysis.get('intent', 'unknown')}, priority={analysis.get('priority', 'medium')}"
+    )
+    
+    return {
+        "status": "processed",
+        "lead_id": lead.id,
+        "interaction_id": interaction.id,
+        "intent": analysis.get("intent"),
+        "priority": analysis.get("priority"),
+    }

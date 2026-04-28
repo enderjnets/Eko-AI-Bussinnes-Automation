@@ -103,6 +103,11 @@ export default function InboxPage() {
 
   useEffect(() => {
     loadInbox();
+    // Auto-refresh every 30 seconds for real-time inbox
+    const interval = setInterval(() => {
+      loadInbox();
+    }, 30000);
+    return () => clearInterval(interval);
   }, [loadInbox]);
 
   const handleMarkRead = async (id: number) => {

@@ -53,6 +53,9 @@ class Settings(BaseSettings):
 
     RESEND_API_KEY: str = ""
     RESEND_FROM_EMAIL: str = "Eko AI <eko@ekoai.com>"
+    RESEND_WEBHOOK_SECRET: str = ""
+    RESEND_INBOUND_DOMAIN: str = "biz.ekoaiautomation.com"
+    AUTO_CREATE_LEAD_FROM_INBOUND: bool = True
 
     OUTSCRAPER_API_KEY: str = ""
     APIFY_API_KEY: str = ""

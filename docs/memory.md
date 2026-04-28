@@ -243,7 +243,8 @@
 - `PAPERCLIP_API_KEY`: ✅ Configured
 - `OUTSCRAPER_API_KEY`: ❌ Placeholder
 - `OPENAI_API_KEY`: ❌ Not configured
-- `RESEND_API_KEY`: ❌ Not configured
+- `RESEND_API_KEY`: ⚠️ Needs verification (for sending)
+- `RESEND_WEBHOOK_SECRET`: ⚠️ Needs configuration in Resend Dashboard
 - `CAL_COM_API_KEY`: ❌ Not configured
 
 ### Services status (PC ROG @ 100.88.47.99)
@@ -259,6 +260,40 @@
 | Celery Beat | — | ✅ Active |
 
 ---
+
+## Inbound Email Configuration
+
+### Domain Setup
+- **Domain**: `ekoaiautomation.com` (GoDaddy)
+- **Subdomain for inbound**: `biz.ekoaiautomation.com` (Resend)
+- **Receiving email**: `contact@biz.ekoaiautomation.com`
+- **Webhook URL**: `http://100.88.47.99:8000/api/v1/webhooks/resend-inbound`
+
+### DNS Records (GoDaddy)
+Add these records in GoDaddy DNS for `ekoaiautomation.com`:
+
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| MX | biz | `inbound-smtp.us-east-1.amazonaws.com` | 600 |
+| TXT | biz | `v=spf1 include:amazonses.com ~all` | 600 |
+| TXT | resend._domainkey.biz | `[DKIM key from Resend]` | 600 |
+
+### Resend Dashboard Setup
+1. Go to Resend Dashboard → Domains → Add Domain → `biz.ekoaiautomation.com`
+2. Copy DNS records and add to GoDaddy
+3. Wait for verification (5-30 min)
+4. Go to Webhooks → Add Webhook
+5. URL: `http://100.88.47.99:8000/api/v1/webhooks/resend-inbound`
+6. Event: `email.received`
+7. Save the Webhook Secret and add to `.env` as `RESEND_WEBHOOK_SECRET`
+
+### Testing
+```bash
+# Send test email to contact@biz.ekoaiautomation.com
+# Check backend logs
+docker compose logs -f backend | grep "inbound"
+# Check inbox at http://100.88.47.99:3001/inbox
+```
 
 ## Quick commands
 
