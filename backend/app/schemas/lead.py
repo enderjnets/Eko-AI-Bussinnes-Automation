@@ -9,7 +9,7 @@ class LeadBase(BaseModel):
     business_name: str = Field(..., min_length=1, max_length=255)
     category: Optional[str] = None
     description: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = None  # Relaxed from EmailStr to prevent 500 on dirty data
     phone: Optional[str] = None
     website: Optional[str] = None
     address: Optional[str] = None
@@ -43,6 +43,9 @@ class LeadUpdate(BaseModel):
     notes: Optional[str] = None
     tags: Optional[list] = None
     assigned_to: Optional[str] = None
+    next_call_at: Optional[datetime] = None
+    call_attempts: Optional[int] = None
+    last_call_result: Optional[str] = None
 
 
 class LeadEnrichment(BaseModel):
@@ -92,6 +95,9 @@ class LeadResponse(LeadBase):
     call_count: int
     last_contact_at: Optional[datetime]
     next_follow_up_at: Optional[datetime]
+    next_call_at: Optional[datetime]
+    call_attempts: int
+    last_call_result: Optional[str]
     do_not_contact: bool
     assigned_to: Optional[str]
     tags: Optional[list]

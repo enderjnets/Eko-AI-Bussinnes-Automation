@@ -40,6 +40,14 @@ celery_app.conf.update(
             "task": "app.tasks.scheduled.process_follow_ups",
             "schedule": 3600.0,  # 1 hour
         },
+        "execute-sequences-every-hour": {
+            "task": "app.tasks.scheduled.execute_sequences",
+            "schedule": 3600.0,  # 1 hour
+        },
+        "remind-scheduled-calls-daily": {
+            "task": "app.tasks.scheduled.remind_scheduled_calls",
+            "schedule": crontab(hour=9, minute=0),  # 9am MT
+        },
         "enrich-pending-leads-every-30-min": {
             "task": "app.tasks.scheduled.enrich_pending_leads",
             "schedule": 1800.0,  # 30 minutes

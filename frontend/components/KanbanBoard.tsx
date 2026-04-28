@@ -1,8 +1,7 @@
 "use client";
 
-import { useRef, useCallback, memo, useState } from "react";
+import { useCallback, memo, useState } from "react";
 import { ArrowRight, ArrowLeft, Send, Loader2, RefreshCw, AlertCircle } from "lucide-react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { crmApi } from "@/lib/api";
 import { useColumnLeads } from "@/hooks/useColumnLeads";
@@ -166,8 +165,6 @@ const KanbanColumn = memo(function KanbanColumn({
   onSendEmail,
   actionLoading,
 }: KanbanColumnProps) {
-  const parentRef = useRef<HTMLDivElement>(null);
-
   const {
     data,
     error,
@@ -181,29 +178,10 @@ const KanbanColumn = memo(function KanbanColumn({
   const stageLeads = data?.pages.flatMap((page) => page.items) || [];
   const total = data?.pages[0]?.total || 0;
 
-  const virtualizer = useVirtualizer({
-    count: stageLeads.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 96,
-    overscan: 5,
-  });
-
-  const virtualItems = virtualizer.getVirtualItems();
-
-  // Detect near-bottom scroll to trigger next page
-  const onScroll = useCallback(() => {
-    const el = parentRef.current;
-    if (!el || !hasNextPage || isFetchingNextPage) return;
-    const { scrollTop, scrollHeight, clientHeight } = el;
-    if (scrollHeight - scrollTop - clientHeight < 300) {
-      fetchNextPage();
-    }
-  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
-
   const isLoading = status === "pending";
 
   return (
-    <div className="w-72 flex-shrink-0 rounded-xl border border-white/5 bg-white/[0.02] flex flex-col max-h-[600px]">
+    <div className="w-72 flex-shrink-0 rounded-xl border border-white/5 bg-white/[0.02] flex flex-col h-[600px]">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -215,13 +193,8 @@ const KanbanColumn = memo(function KanbanColumn({
         </span>
       </div>
 
-      {/* Virtualized Lead List */}
-      <div
-        ref={parentRef}
-        className="p-3 overflow-y-auto flex-1"
-        style={{ contain: "strict" }}
-        onScroll={onScroll}
-      >
+      {/* Lead List */}
+      <div className="p-3 overflow-y-auto flex-1">
         {error ? (
           <div className="text-center py-8 text-red-400 text-xs">
             Error cargando leads
@@ -233,45 +206,31 @@ const KanbanColumn = memo(function KanbanColumn({
         ) : stageLeads.length === 0 ? (
           <div className="text-center py-8 text-gray-600 text-xs">No leads</div>
         ) : (
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: "100%",
-              position: "relative",
-            }}
-          >
-            {virtualItems.map((virtualItem) => {
-              const lead = stageLeads[virtualItem.index];
-              return (
-                <div
-                  key={lead.id}
-                  ref={virtualizer.measureElement}
-                  data-index={virtualItem.index}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualItem.start}px)`,
-                  }}
-                  className="px-1 py-1"
-                >
-                  <LeadCard
-                    lead={lead}
-                    isLoading={!!actionLoading[lead.id]}
-                    onTransition={onTransition}
-                    onSendEmail={onSendEmail}
-                  />
-                </div>
-              );
-            })}
+          <div className="space-y-2">
+            {stageLeads.map((lead) => (
+              <LeadCard
+                key={lead.id}
+                lead={lead}
+                isLoading={!!actionLoading[lead.id]}
+                onTransition={onTransition}
+                onSendEmail={onSendEmail}
+              />
+            ))}
           </div>
         )}
 
-        {isFetchingNextPage && (
-          <div className="flex items-center justify-center py-3">
-            <Loader2 className="w-4 h-4 animate-spin text-eko-blue" />
-          </div>
+        {hasNextPage && (
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="w-full mt-3 py-2 text-xs text-gray-500 hover:text-white transition-colors border border-white/5 rounded-lg hover:bg-white/5 disabled:opacity-50"
+          >
+            {isFetchingNextPage ? (
+              <Loader2 className="w-4 h-4 animate-spin mx-auto" />
+            ) : (
+              "Cargar más"
+            )}
+          </button>
         )}
       </div>
     </div>

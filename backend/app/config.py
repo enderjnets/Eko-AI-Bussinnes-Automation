@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "Eko AI Business Automation"
     APP_VERSION: str = "0.5.1"
+    APP_URL: str = "http://localhost:8000"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "change-this-in-production"
@@ -64,14 +65,18 @@ class Settings(BaseSettings):
 
     # Phase 2: Calendar
     CAL_COM_API_KEY: str = ""
+    CAL_COM_USERNAME: str = "eko-ai"
 
     # Compliance
     DNC_SYNC_CRON: str = "0 2 1 * *"
     MAX_CONTACT_ATTEMPTS: int = 5
     COOLDOWN_HOURS_BETWEEN_CONTACTS: int = 72
 
+    # Frontend URL for proposal links
+    FRONTEND_URL: str = "http://localhost:3001"
+
     # CORS
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001,http://localhost:8000"
 
     # Paperclip — AI Company Control Plane
     PAPERCLIP_API_URL: str = "http://100.88.47.99:3100"

@@ -9,6 +9,7 @@ from app.db.base import AsyncSessionLocal
 from app.models.user import User
 from app.models.lead import Lead, LeadStatus, Interaction
 from app.models.campaign import Campaign, CampaignLead
+from app.models.sequence import EmailSequence, SequenceStep, SequenceEnrollment, SequenceStatus, SequenceStepType
 from app.agents.outreach.channels.email import EmailOutreach
 from app.agents.research.agent import ResearchAgent
 from app.services.paperclip import on_system_alert, on_email_sent, on_email_error
@@ -123,6 +124,188 @@ async def _process_follow_ups_async():
             f"Follow-ups complete: {processed} sent, {skipped} skipped (no email), {errors} errors"
         )
         return {"processed": processed, "skipped": skipped, "errors": errors}
+
+
+async def _execute_sequences_async():
+    """Execute pending sequence steps for active enrollments."""
+    async with AsyncSessionLocal() as db:
+        now = datetime.utcnow()
+        email = EmailOutreach()
+        
+        # Get active sequences
+        seq_result = await db.execute(
+            select(EmailSequence).where(EmailSequence.status == SequenceStatus.ACTIVE)
+        )
+        sequences = seq_result.scalars().all()
+        
+        total_executed = 0
+        total_skipped = 0
+        total_errors = 0
+        
+        for seq in sequences:
+            # Get steps ordered
+            steps_result = await db.execute(
+                select(SequenceStep)
+                .where(SequenceStep.sequence_id == seq.id)
+                .order_by(SequenceStep.position)
+            )
+            steps = steps_result.scalars().all()
+            
+            if not steps:
+                continue
+            
+            # Get enrollments ready for next step
+            enrollments_result = await db.execute(
+                select(SequenceEnrollment)
+                .where(SequenceEnrollment.sequence_id == seq.id)
+                .where(SequenceEnrollment.status == "active")
+                .where(
+                    (SequenceEnrollment.next_step_at == None) |
+                    (SequenceEnrollment.next_step_at <= now)
+                )
+            )
+            enrollments = enrollments_result.scalars().all()
+            
+            for enrollment in enrollments:
+                lead_result = await db.execute(
+                    select(Lead).where(Lead.id == enrollment.lead_id)
+                )
+                lead = lead_result.scalar_one_or_none()
+                
+                if not lead or lead.do_not_contact:
+                    enrollment.status = "exited"
+                    await db.commit()
+                    continue
+                
+                # Check if lead has progressed beyond contacted (e.g., meeting booked)
+                # If so, auto-pause the sequence
+                if lead.status in [LeadStatus.MEETING_BOOKED, LeadStatus.PROPOSAL_SENT, LeadStatus.NEGOTIATING, LeadStatus.CLOSED_WON]:
+                    enrollment.status = "paused"
+                    enrollment.meta = {**(enrollment.meta or {}), "auto_paused_reason": "lead_converted"}
+                    await db.commit()
+                    continue
+                
+                # Find current step
+                current_step = None
+                for step in steps:
+                    if step.position >= enrollment.current_step_position:
+                        current_step = step
+                        break
+                
+                if not current_step:
+                    # Sequence completed
+                    enrollment.status = "completed"
+                    enrollment.completed_at = now
+                    seq.leads_completed += 1
+                    await db.commit()
+                    continue
+                
+                try:
+                    if current_step.step_type == SequenceStepType.EMAIL:
+                        template_key = current_step.template_key or "initial_outreach"
+                        if current_step.ai_generate:
+                            response = await email.generate_and_send(
+                                lead=lead,
+                                template_key=template_key,
+                            )
+                        else:
+                            subject = current_step.subject_template or "Hello"
+                            body = current_step.body_template or "<p>Hello</p>"
+                            response = await email.send(
+                                to_email=lead.email,
+                                subject=subject,
+                                body=body,
+                                lead_id=lead.id,
+                                business_name=lead.business_name,
+                                ai_generated=False,
+                            )
+                        
+                        # Update lead status if first contact
+                        if lead.status in [LeadStatus.DISCOVERED, LeadStatus.ENRICHED, LeadStatus.SCORED]:
+                            lead.status = LeadStatus.CONTACTED
+                            lead.last_contact_at = now
+                        
+                        # Record interaction
+                        interaction = Interaction(
+                            lead_id=lead.id,
+                            interaction_type="email",
+                            direction="outbound",
+                            subject=response.get("subject", ""),
+                            content=f"Sequence '{seq.name}' step: {current_step.name}",
+                            email_status="sent",
+                            email_message_id=response.get("id"),
+                            meta={
+                                "sequence_id": seq.id,
+                                "sequence_name": seq.name,
+                                "step_position": current_step.position,
+                                "template": template_key,
+                            },
+                        )
+                        db.add(interaction)
+                        total_executed += 1
+                        
+                    elif current_step.step_type == SequenceStepType.WAIT:
+                        total_skipped += 1
+                    
+                    # Advance to next step
+                    enrollment.current_step_position = current_step.position + 1
+                    next_step = None
+                    for step in steps:
+                        if step.position > current_step.position:
+                            next_step = step
+                            break
+                    
+                    if next_step and next_step.step_type == SequenceStepType.WAIT:
+                        enrollment.next_step_at = now + timedelta(hours=next_step.delay_hours or 24)
+                    elif next_step:
+                        enrollment.next_step_at = now
+                    else:
+                        enrollment.status = "completed"
+                        enrollment.completed_at = now
+                        seq.leads_completed += 1
+                    
+                    await db.commit()
+                    
+                except Exception as e:
+                    logger.error(f"Sequence execution failed for lead {lead.id} in sequence {seq.id}: {e}")
+                    total_errors += 1
+                    # Don't advance step on error — retry next hour
+        
+        logger.info(f"Sequence execution complete: {total_executed} sent, {total_skipped} skipped, {total_errors} errors")
+        return {"executed": total_executed, "skipped": total_skipped, "errors": total_errors}
+
+
+async def _remind_scheduled_calls_async():
+    """Log reminders for scheduled calls that are due today."""
+    async with AsyncSessionLocal() as db:
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now.replace(hour=23, minute=59, second=59)
+        
+        result = await db.execute(
+            select(Lead)
+            .where(Lead.next_call_at >= today_start)
+            .where(Lead.next_call_at <= today_end)
+            .where(Lead.do_not_contact == False)
+            .where(Lead.status.not_in([LeadStatus.CLOSED_WON, LeadStatus.CLOSED_LOST, LeadStatus.CHURNED]))
+            .order_by(Lead.next_call_at)
+            .limit(50)
+        )
+        leads = result.scalars().all()
+        
+        for lead in leads:
+            interaction = Interaction(
+                lead_id=lead.id,
+                interaction_type="note",
+                direction="outbound",
+                content=f"Reminder: scheduled call due today for {lead.business_name}",
+                meta={"reminder": True, "scheduled_call": True, "phone": lead.phone},
+            )
+            db.add(interaction)
+            logger.info(f"Call reminder: {lead.business_name} ({lead.phone})")
+        
+        await db.commit()
+        return {"reminders_logged": len(leads)}
 
 
 async def _enrich_pending_leads_async(batch_size: int = 100):
@@ -500,6 +683,32 @@ def _get_worker_loop():
         _worker_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_worker_loop)
     return _worker_loop
+
+
+@celery_app.task
+def execute_sequences():
+    """Scheduled task: Execute pending sequence steps. Runs every hour."""
+    logger.info("[Celery] Executing sequences...")
+    try:
+        result = asyncio.run(_execute_sequences_async())
+        logger.info(f"[Celery] Sequence execution complete: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"[Celery] Sequence execution failed: {e}")
+        raise
+
+
+@celery_app.task
+def remind_scheduled_calls():
+    """Scheduled task: Log reminders for calls due today. Runs daily at 9am MT."""
+    logger.info("[Celery] Reminding scheduled calls...")
+    try:
+        result = asyncio.run(_remind_scheduled_calls_async())
+        logger.info(f"[Celery] Call reminders complete: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"[Celery] Call reminders failed: {e}")
+        raise
 
 
 @celery_app.task

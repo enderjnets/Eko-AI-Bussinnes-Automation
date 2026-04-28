@@ -1,12 +1,63 @@
 # Project Memory — Eko AI Business Automation
 
-**Last updated**: 2026-04-26
-**Current version**: 0.6.7
-**Current phase**: Discovery Complete US Cities Dataset ✅ Complete
+**Last updated**: 2026-04-28
+**Current version**: 0.7.0
+**Current phase**: FASE 8 — AI Proposal Generator + Voice & Email Reply Agents ✅ Complete
 
 ---
 
 ## What was done (this session)
+
+### v0.7.0 — FASE 8: AI Proposal Generator + Email Reply Agent + VAPI Voice Agent — COMPLETED
+
+#### Phase 1 — Proposal Engine
+- **Model `proposals`** — New PostgreSQL table with share_token, brand colors, content, status tracking
+- **Brand Extractor** (`services/brand_extractor.py`) — Scrapes lead websites to extract primary/secondary colors and logo URL
+- **AI Proposal Generator** (`services/proposal_generator.py`) — Generates personalized HTML proposals using lead context + deal info + brand colors
+- **API endpoints** (`/api/v1/proposals`):
+  - CRUD, generate AI content, send (creates public link), duplicate
+  - Public endpoints: `GET /public/{token}`, `POST /public/{token}/accept`, `POST /public/{token}/reject`
+- **Frontend**:
+  - `/proposals` — List with stats, filters, search
+  - `/proposals/[id]` — Editor with HTML preview / raw HTML / plain text tabs, color pickers, AI generate button
+  - `/proposals/public/[token]` — Public page for clients with Accept/Reject buttons
+- **Navbar + Dashboard** — Added Propuestas quick-access card
+
+#### Phase 2 — AI Email Reply Agent
+- **Service** (`services/email_reply_agent.py`) — Context-aware reply generation using lead history, conversation thread, tone selection (professional/friendly/assertive/consultative)
+- **API endpoints** (`/api/v1/emails`):
+  - `POST /{interaction_id}/ai-reply` — Generates AI reply, stores in interaction meta
+  - `POST /{interaction_id}/send-reply` — Sends approved reply via Resend, creates outbound interaction
+  - `GET /{interaction_id}/conversation` — Full email thread for context
+- **Frontend Inbox** — "Responder con IA" button opens modal with tone/length selectors, conversation preview, editable AI response, send/regenerate
+
+#### Phase 3 — VAPI Voice Agent
+- **VAPI Client** (`services/vapi_client.py`) — Create calls, list calls, create/update assistants, build sales assistant prompts
+- **API endpoints** (`/api/v1/voice-agent`):
+  - `POST /calls` — Initiates outbound call to lead via VAPI with custom instructions
+  - `GET /calls` — Lists call history with interest levels
+  - `GET /calls/{id}` — Detail with VAPI call data
+  - `POST /assistants` — Creates VAPI voice assistant
+- **Webhook** (`/webhooks/vapi`) — Receives `end-of-call-report`, `status-update`, `conversation-update`; updates PhoneCall records with transcripts, summaries, interest levels
+- **Frontend `/voice-agent`** — Stats cards, call list with result badges, modal to start calls with lead search + custom instructions
+- **Navbar + Dashboard** — Added Voice Agent quick-access card
+
+#### Pipeline Kanban Fix
+- **Root cause**: `@tanstack/react-virtual` v3 collapsed viewport to 0px in flex columns with `max-h` + `flex-1`
+- **Fix**: Removed virtualizer entirely; replaced with simple scroll + `.map()` + "Cargar más" pagination button
+- **Auth fix**: Non-admin users now see public leads (`owner_id IS NULL`) in pipeline
+- **DB migration**: Added missing `brand_primary_color`, `brand_secondary_color`, `brand_logo_url` columns to `leads` table
+
+#### Database Snapshot (v0.7.0)
+| Status | Count |
+|--------|-------|
+| DISCOVERED | 19 |
+| ENRICHED | 29 |
+| SCORED | 478 |
+| ENGAGED | 1 |
+| **Total** | **527** |
+
+---
 
 ### v0.6.7 — Complete US Cities Dataset from Census Bureau — COMPLETED
 
@@ -158,23 +209,28 @@
 | Kimi AI | ✅ Working | `kimi-for-coding` + sentence-transformers |
 | Celery Worker | ✅ Working | Enrichment, follow-ups, DNC sync |
 | Docker | ✅ Running | All 6 containers up |
+| Proposals (AI) | ✅ Working | Brand extraction + public pages |
+| Email Reply Agent | ✅ Working | Context-aware AI replies |
+| VAPI Voice Agent | ✅ Working | Outbound calls + webhooks |
 | Google Maps | ⏳ Deferred | Outscraper requires payment |
 | pytest | ⚠️ Blocked | Python 3.14 incompatible with pydantic-core |
 | OpenAI API Key | ❌ Placeholder | Kimi replaces OpenAI |
 | Resend API Key | ❌ Placeholder | Required for actual email delivery |
 | Cal.com API Key | ❌ Placeholder | Required for live calendar sync |
+| VAPI API Key | ❌ Placeholder | Required for live voice calls |
 
 ### Frontend gaps identified
 1. **Campaign "Create" button** — Dead/non-functional
 2. **Calendar "Create Booking"** — Only list + cancel exist
 3. **Lead detail TypeScript** — Build passes but audit flagged potential issues
 
-### Next priorities (Fase 3-4)
-1. Voice AI integration (Retell / Vapi)
-2. Production deployment hardening
-3. Analytics dashboard enhancements
-4. Fix campaign creation flow
-5. Add calendar booking creation UI
+### Next priorities (Fase 9+)
+1. Production deployment hardening
+2. Analytics dashboard enhancements
+3. Fix campaign creation flow
+4. Add calendar booking creation UI
+5. WhatsApp/SMS integration
+6. Advanced proposal templates (industry-specific)
 
 ---
 

@@ -15,10 +15,11 @@ import {
   Target,
   X,
   ChevronDown,
+  Send,
 } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
-import { leadsApi } from "@/lib/api";
+import { leadsApi, phoneCallsApi } from "@/lib/api";
 
 interface Lead {
   id: number;
@@ -119,6 +120,18 @@ export default function LeadsPage() {
   const [hasPhone, setHasPhone] = useState<boolean | null>(null);
   const [hasWebsite, setHasWebsite] = useState<boolean | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Bulk selection
+  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
+  const [bulkContacting, setBulkContacting] = useState(false);
+  const [bulkContactResult, setBulkContactResult] = useState<string | null>(null);
+
+  // Call modal
+  const [callModalLead, setCallModalLead] = useState<Lead | null>(null);
+  const [callResult, setCallResult] = useState("NO_ANSWER");
+  const [callNotes, setCallNotes] = useState("");
+  const [callInterest, setCallInterest] = useState("MEDIUM");
+  const [callNextAction, setCallNextAction] = useState("CALL_AGAIN");
+  const [callLogging, setCallLogging] = useState(false);
 
   // Headquarters
   const [hqAddress, setHqAddress] = useState(DEFAULT_HQ_ADDRESS);
@@ -357,6 +370,70 @@ export default function LeadsPage() {
       loadLeads();
     } else {
       alert("No se pudo geocodificar la dirección. Intenta con un formato más específico.");
+    }
+  };
+
+  // Bulk selection handlers
+  const toggleSelectLead = (id: number) => {
+    setSelectedLeads((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedLeads.size === leads.length) {
+      setSelectedLeads(new Set());
+    } else {
+      setSelectedLeads(new Set(leads.map((l) => l.id)));
+    }
+  };
+
+  const handleBulkContact = async () => {
+    if (selectedLeads.size === 0) return;
+    const ids = Array.from(selectedLeads);
+    setBulkContacting(true);
+    setBulkContactResult(null);
+    try {
+      const res = await leadsApi.bulkContact(ids, "initial_outreach");
+      const data = res.data;
+      setBulkContactResult(`Enviados: ${data.sent} / Fallidos: ${data.failed}`);
+      setSelectedLeads(new Set());
+      loadLeads();
+      setTimeout(() => setBulkContactResult(null), 5000);
+    } catch (err: any) {
+      console.error(err);
+      setBulkContactResult(err.response?.data?.detail || "Error enviando emails");
+      setTimeout(() => setBulkContactResult(null), 5000);
+    } finally {
+      setBulkContacting(false);
+    }
+  };
+
+  const handleLogCall = async () => {
+    if (!callModalLead) return;
+    setCallLogging(true);
+    try {
+      await phoneCallsApi.create({
+        lead_id: callModalLead.id,
+        result: callResult,
+        notes: callNotes || undefined,
+        interest_level: callInterest,
+        next_action: callNextAction,
+      });
+      setCallModalLead(null);
+      setCallResult("NO_ANSWER");
+      setCallNotes("");
+      setCallInterest("MEDIUM");
+      setCallNextAction("CALL_AGAIN");
+      loadLeads();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || "Error guardando llamada");
+    } finally {
+      setCallLogging(false);
     }
   };
 
@@ -638,70 +715,96 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {/* Bulk enrich */}
+        {/* Bulk actions */}
         <div className="flex items-center justify-between mb-4">
-          {enrichmentStatus && enrichmentStatus.discovered > 0 && (
-            <button
-              onClick={async () => {
-                setBulkEnriching(true);
-                try {
-                  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
-                  const res = await fetch("/api/v1/leads/enrich-all", {
-                    method: "POST",
-                    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-                  });
-                  await res.json();
-                  setShowEnrichmentToast(true);
-                  setTimeout(() => setShowEnrichmentToast(false), 5000);
-                } catch (err) {
-                  console.error(err);
-                } finally {
-                  setBulkEnriching(false);
-                }
-              }}
-              disabled={bulkEnriching}
-              className="flex items-center gap-2 rounded-lg bg-eko-green/20 border border-eko-green/30 px-4 py-2 text-sm font-medium text-eko-green hover:bg-eko-green/30 disabled:opacity-50 transition-colors"
-            >
-              {bulkEnriching ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4" />
-              )}
-              Enriquecer Todos ({enrichmentStatus.discovered})
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {enrichmentStatus && enrichmentStatus.discovered > 0 && (
+              <button
+                onClick={async () => {
+                  setBulkEnriching(true);
+                  try {
+                    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : "";
+                    const res = await fetch("/api/v1/leads/enrich-all", {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                    });
+                    await res.json();
+                    setShowEnrichmentToast(true);
+                    setTimeout(() => setShowEnrichmentToast(false), 5000);
+                  } catch (err) {
+                    console.error(err);
+                  } finally {
+                    setBulkEnriching(false);
+                  }
+                }}
+                disabled={bulkEnriching}
+                className="flex items-center gap-2 rounded-lg bg-eko-green/20 border border-eko-green/30 px-4 py-2 text-sm font-medium text-eko-green hover:bg-eko-green/30 disabled:opacity-50 transition-colors"
+              >
+                {bulkEnriching ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4" />
+                )}
+                Enriquecer Todos ({enrichmentStatus.discovered})
+              </button>
+            )}
+            {selectedLeads.size > 0 && (
+              <button
+                onClick={handleBulkContact}
+                disabled={bulkContacting}
+                className="flex items-center gap-2 rounded-lg bg-eko-blue/20 border border-eko-blue/30 px-4 py-2 text-sm font-medium text-eko-blue hover:bg-eko-blue/30 disabled:opacity-50 transition-colors"
+              >
+                {bulkContacting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                Enviar email a {selectedLeads.size} seleccionados
+              </button>
+            )}
+            {bulkContactResult && (
+              <span className="text-xs text-gray-400 animate-in fade-in">{bulkContactResult}</span>
+            )}
+          </div>
           {enrichmentStatus && (
             <div className="text-xs text-gray-500">
-              {enrichmentStatus.scored} enriquecidos · {enrichmentStatus.discovered} pendientes
+              {enrichmentStatus.scored ?? 0} scored · {enrichmentStatus.enriched ?? 0} enriched · {enrichmentStatus.discovered ?? 0} to discover
             </div>
           )}
         </div>
 
         {/* Progress bar */}
-        {enrichmentStatus && enrichmentStatus.total > 0 && (
+        {enrichmentStatus && (enrichmentStatus.discovered > 0 || enrichmentStatus.enriched > 0) && (
           <div className="mb-6 rounded-xl border border-white/5 bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="text-xs text-gray-400">
-                <span className="text-eko-green font-medium">{(enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)}</span> procesados &middot;{" "}
-                <span className="text-gray-500">{enrichmentStatus.discovered ?? 0}</span> pendientes
+                <span className="text-eko-green font-medium">{(enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)}</span> processed &middot;{" "}
+                <span className="text-gray-500">{enrichmentStatus.discovered ?? 0}</span> pending
                 {" "}·{" "}
-                <span className="text-gray-500">{enrichmentStatus.total}</span> total
+                <span className="text-gray-500">{enrichmentStatus.pipeline_total ?? enrichmentStatus.total}</span> pipeline
               </div>
               <div className="text-xs text-eko-green font-medium">
-                {Math.round((((enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)) / enrichmentStatus.total) * 100)}%
+                {(() => {
+                  const denom = enrichmentStatus.pipeline_total ?? enrichmentStatus.total ?? 1;
+                  const pct = Math.round((((enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)) / denom) * 100);
+                  return `${pct}%`;
+                })()}
               </div>
             </div>
             <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
               <div
                 className="bg-gradient-to-r from-eko-green to-eko-blue h-2.5 rounded-full transition-all duration-700 ease-out"
                 style={{
-                  width: `${Math.round((((enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)) / enrichmentStatus.total) * 100)}%`,
+                  width: `${(() => {
+                    const denom = enrichmentStatus.pipeline_total ?? enrichmentStatus.total ?? 1;
+                    return Math.round((((enrichmentStatus.scored ?? 0) + (enrichmentStatus.enriched ?? 0)) / denom) * 100);
+                  })()}%`,
                 }}
               />
             </div>
             <div className="flex justify-between text-xs mt-1.5 text-gray-500">
-              <span>Progreso de enriquecimiento</span>
-              <span>{enrichmentStatus.scored ?? 0} con score &middot; {enrichmentStatus.enriched ?? 0} enriquecidos &middot; {enrichmentStatus.discovered ?? 0} por descubrir</span>
+              <span>Enrichment progress</span>
+              <span>{enrichmentStatus.scored ?? 0} with score &middot; {enrichmentStatus.enriched ?? 0} enriched &middot; {enrichmentStatus.discovered ?? 0} to discover</span>
             </div>
           </div>
         )}
@@ -734,6 +837,14 @@ export default function LeadsPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-white/5 text-left text-xs text-gray-500 uppercase">
+                  <th className="px-4 py-3 w-8">
+                    <input
+                      type="checkbox"
+                      checked={selectedLeads.size === leads.length && leads.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-white/20 bg-white/5"
+                    />
+                  </th>
                   <th className="px-4 py-3">Negocio</th>
                   <th className="px-4 py-3">Ubicación</th>
                   <th className="px-4 py-3">Contacto</th>
@@ -746,6 +857,14 @@ export default function LeadsPage() {
               <tbody className="divide-y divide-white/5">
                 {leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="px-4 py-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={selectedLeads.has(lead.id)}
+                        onChange={() => toggleSelectLead(lead.id)}
+                        className="rounded border-white/20 bg-white/5"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div>
                         <Link href={`/leads/${lead.id}`} className="font-medium text-sm hover:text-eko-blue transition-colors">{lead.business_name}</Link>
@@ -799,7 +918,7 @@ export default function LeadsPage() {
                     </td>
                     {hqCoords && sortBy !== "score" && (
                       <td className="px-4 py-3">
-                        {lead.distance_km !== undefined && lead.distance_km !== null ? (
+                        {typeof lead.distance_km === "number" && !Number.isNaN(lead.distance_km) ? (
                           <span className="flex items-center gap-1 text-xs text-gray-400">
                             <Navigation className="w-3 h-3 text-eko-blue" />
                             {lead.distance_km < 1
@@ -817,20 +936,31 @@ export default function LeadsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      {(lead.status === "discovered" || lead.status === "enriched") && (
-                        <button
-                          onClick={() => handleEnrich(lead.id)}
-                          disabled={enrichingId === lead.id}
-                          className="flex items-center gap-1 text-xs text-eko-blue hover:text-eko-blue-dark disabled:opacity-50"
-                        >
-                          {enrichingId === lead.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3 h-3" />
-                          )}
-                          {lead.status === "enriched" ? "Re-enriquecer" : "Enriquecer"}
-                        </button>
-                      )}
+                      <div className="flex flex-col gap-1">
+                        {(lead.status === "discovered" || lead.status === "enriched") && (
+                          <button
+                            onClick={() => handleEnrich(lead.id)}
+                            disabled={enrichingId === lead.id}
+                            className="flex items-center gap-1 text-xs text-eko-blue hover:text-eko-blue-dark disabled:opacity-50"
+                          >
+                            {enrichingId === lead.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3 h-3" />
+                            )}
+                            {lead.status === "enriched" ? "Re-enriquecer" : "Enriquecer"}
+                          </button>
+                        )}
+                        {lead.phone && (
+                          <button
+                            onClick={() => setCallModalLead(lead)}
+                            className="flex items-center gap-1 text-xs text-eko-green hover:text-eko-green-dark"
+                          >
+                            <Phone className="w-3 h-3" />
+                            Llamar
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -864,6 +994,104 @@ export default function LeadsPage() {
           </div>
         )}
       </main>
+
+      {/* Call Log Modal */}
+      {callModalLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl border border-white/10 bg-eko-graphite shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
+              <h3 className="font-medium text-sm">Registrar llamada — {callModalLead.business_name}</h3>
+              <button
+                onClick={() => setCallModalLead(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-gray-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Resultado</label>
+                <select
+                  value={callResult}
+                  onChange={(e) => setCallResult(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
+                >
+                  <option value="CONNECTED">Conectado</option>
+                  <option value="NO_ANSWER">No contestó</option>
+                  <option value="VOICEMAIL">Buzón de voz</option>
+                  <option value="WRONG_NUMBER">Número equivocado</option>
+                  <option value="BUSY">Ocupado</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Nivel de interés</label>
+                <select
+                  value={callInterest}
+                  onChange={(e) => setCallInterest(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
+                >
+                  <option value="HIGH">Alto</option>
+                  <option value="MEDIUM">Medio</option>
+                  <option value="LOW">Bajo</option>
+                  <option value="NONE">Sin interés</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Próximo paso</label>
+                <select
+                  value={callNextAction}
+                  onChange={(e) => setCallNextAction(e.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none"
+                >
+                  <option value="CALL_AGAIN">Llamar de nuevo</option>
+                  <option value="EMAIL">Enviar email</option>
+                  <option value="CLOSE">Cerrar lead</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Notas</label>
+                <textarea
+                  value={callNotes}
+                  onChange={(e) => setCallNotes(e.target.value)}
+                  placeholder="Notas de la conversación..."
+                  rows={3}
+                  className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm focus:border-eko-blue focus:outline-none resize-none"
+                />
+              </div>
+
+              {callModalLead.phone && (
+                <a
+                  href={`tel:${callModalLead.phone}`}
+                  className="flex items-center justify-center gap-2 w-full rounded-lg bg-eko-green/20 border border-eko-green/30 py-2.5 text-sm font-medium text-eko-green hover:bg-eko-green/30 transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  Llamar ahora — {callModalLead.phone}
+                </a>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 px-5 py-4 border-t border-white/5">
+              <button
+                onClick={handleLogCall}
+                disabled={callLogging}
+                className="flex-1 rounded-lg bg-eko-blue py-2.5 text-sm font-medium hover:bg-eko-blue-dark disabled:opacity-50 transition-colors"
+              >
+                {callLogging ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Guardar"}
+              </button>
+              <button
+                onClick={() => setCallModalLead(null)}
+                className="rounded-lg border border-white/10 px-4 py-2.5 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

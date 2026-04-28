@@ -1,8 +1,9 @@
 import logging
 import math
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from sqlalchemy import select, func, Integer, case
+from typing import Optional, List
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Body
+from sqlalchemy import select, func, Integer, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -11,6 +12,7 @@ from app.models.user import User
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadListResponse, DiscoveryRequest, LeadSearchRequest
 from app.agents.discovery.agent import DiscoveryAgent
 from app.agents.research.agent import ResearchAgent
+from app.agents.outreach.channels.email import EmailOutreach, EMAIL_TEMPLATES
 from app.services.paperclip import on_lead_status_change, on_system_alert
 from app.utils.embedding import update_lead_embedding
 from app.utils.ai_client import generate_embedding
@@ -35,12 +37,18 @@ async def enrichment_status(
         counts[s.value] = await db.scalar(
             select(func.count()).select_from(Lead).where(Lead.status == s)
         )
+    pipeline_total = (
+        counts.get(LeadStatus.DISCOVERED.value, 0)
+        + counts.get(LeadStatus.ENRICHED.value, 0)
+        + counts.get(LeadStatus.SCORED.value, 0)
+    )
     return {
         "counts": counts,
         "discovered": counts.get(LeadStatus.DISCOVERED.value, 0),
         "enriched": counts.get(LeadStatus.ENRICHED.value, 0),
         "scored": counts.get(LeadStatus.SCORED.value, 0),
         "total": sum(counts.values()),
+        "pipeline_total": pipeline_total,
     }
 
 def _haversine_km(lat1: float, lng1: float, lat2: Optional[float], lng2: Optional[float]) -> Optional[float]:
@@ -78,10 +86,10 @@ async def list_leads(
     """List leads with optional filtering, geo-sorting and smart ranking."""
     query = select(Lead)
 
-    # Non-admin users only see their own leads
+    # Non-admin users see their own leads + public leads (no owner)
     if not current_user.is_superuser and current_user.role.value != "admin":
         query = query.where(
-            (Lead.owner_id == current_user.id) | (Lead.assigned_to == current_user.email)
+            (Lead.owner_id == current_user.id) | (Lead.owner_id.is_(None)) | (Lead.assigned_to == current_user.email)
         )
 
     if status:
@@ -113,49 +121,7 @@ async def list_leads(
     count_query = select(func.count()).select_from(query.subquery())
     total = await db.scalar(count_query) or 0
 
-    # Determine if we need to fetch all items for Python-side geo sorting
-    needs_geo_sort = lat is not None and lng is not None and sort_by in ("distance", "score_distance")
-
-    if needs_geo_sort:
-        # Fetch all filtered leads (capped at 1000 for performance)
-        # Use offset/limit for pagination within the fetched set
-        fetch_limit = min(1000, page * page_size + page_size)
-        query = query.limit(fetch_limit)
-        result = await db.execute(query)
-        leads = list(result.scalars().all())
-
-        # Compute distance for each lead
-        for lead in leads:
-            lead.distance_km = _haversine_km(lat, lng, lead.latitude, lead.longitude)
-
-        # Sort
-        def _contact_score(l):
-            score = 0
-            if l.email: score += 1
-            if l.phone: score += 1
-            if l.website and 'yelp.com' not in l.website.lower(): score += 1
-            return score
-
-        if sort_by == "distance":
-            leads.sort(key=lambda l: (l.distance_km if l.distance_km is not None else float("inf"), -_contact_score(l), - (l.total_score or 0)))
-        elif sort_by == "score_distance":
-            # Primary: more contact data; Secondary: higher score; Tertiary: closer distance
-            leads.sort(key=lambda l: (-_contact_score(l), - (l.total_score or 0), l.distance_km if l.distance_km is not None else float("inf")))
-
-        # Python-side pagination
-        start = (page - 1) * page_size
-        end = start + page_size
-        paginated_leads = leads[start:end]
-
-        return LeadListResponse(
-            total=total,
-            items=paginated_leads,
-            page=page,
-            page_size=page_size,
-        )
-
-    # Standard SQL-side sorting (no geo reference)
-    # Contactability score: +1 for email, +1 for phone, +1 for real website (not yelp)
+    # Contactability score expression (reused for geo and non-geo sorts)
     contact_score = (
         func.coalesce(func.nullif(Lead.email, '').isnot(None).cast(Integer), 0) +
         func.coalesce(func.nullif(Lead.phone, '').isnot(None).cast(Integer), 0) +
@@ -165,8 +131,51 @@ async def list_leads(
         )
     )
 
+    # Geo-sorting: use SQL-side Haversine distance for deterministic, scalable ordering
+    needs_geo_sort = lat is not None and lng is not None and sort_by in ("distance", "score_distance")
+    if needs_geo_sort:
+        lat_rad = func.radians(lat)
+        lng_rad = func.radians(lng)
+        lead_lat_rad = func.radians(Lead.latitude)
+        lead_lng_rad = func.radians(Lead.longitude)
+        dlat = lead_lat_rad - lat_rad
+        dlng = lead_lng_rad - lng_rad
+        a = (
+            func.pow(func.sin(dlat / 2), 2) +
+            func.cos(lat_rad) * func.cos(lead_lat_rad) * func.pow(func.sin(dlng / 2), 2)
+        )
+        c = 2 * func.asin(func.sqrt(func.least(1.0, func.greatest(0.0, a))))
+        distance_expr = (6371.0 * c).label("distance_km")
+
+        # Only leads with coordinates can be distance-sorted
+        query = query.where(Lead.latitude.isnot(None) & Lead.longitude.isnot(None))
+
+        if sort_by == "distance":
+            query = query.order_by(distance_expr.asc())
+        elif sort_by == "score_distance":
+            query = query.order_by(
+                contact_score.desc(),
+                func.coalesce(Lead.total_score, 0).desc(),
+                distance_expr.asc(),
+            )
+
+        query = query.offset((page - 1) * page_size).limit(page_size)
+        result = await db.execute(query)
+        leads = list(result.scalars().all())
+
+        # Compute distance_km on the small paginated result set for serialization
+        for lead in leads:
+            lead.distance_km = _haversine_km(lat, lng, lead.latitude, lead.longitude)
+
+        return LeadListResponse(
+            total=total,
+            items=leads,
+            page=page,
+            page_size=page_size,
+        )
+
+    # Standard SQL-side sorting (no geo reference)
     if sort_by == "score":
-        # Primary: more contact data first; Secondary: higher score; Tertiary: newest
         query = query.order_by(contact_score.desc(), func.coalesce(Lead.total_score, 0).desc(), Lead.created_at.desc())
     elif sort_by == "score_distance" and (lat is None or lng is None):
         # Fallback to score-only if lat/lng missing
@@ -547,3 +556,122 @@ async def _enrich_leads_batch(lead_ids: list[int]):
 
         await db.commit()
     logger.info(f"Batch enrichment complete: {enriched_count} enriched, {failed_count} failed")
+
+
+@router.post("/bulk/contact", response_model=dict)
+async def bulk_contact_leads(
+    lead_ids: List[int] = Body(..., description="List of lead IDs to contact"),
+    template: str = Body("initial_outreach", description="Email template key to use"),
+    custom_subject: Optional[str] = Body(None, description="Optional custom subject (overrides AI generation)"),
+    custom_body: Optional[str] = Body(None, description="Optional custom body (overrides AI generation)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Bulk contact multiple leads via email.
+    Only contacts leads in SCORED status with email and do_not_contact=False.
+    Rate limited to MAX_CAMPAIGN_EMAILS_PER_BATCH (50) per request.
+    """
+    from app.api.v1.campaigns import MAX_CAMPAIGN_EMAILS_PER_BATCH
+
+    if len(lead_ids) > MAX_CAMPAIGN_EMAILS_PER_BATCH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Max {MAX_CAMPAIGN_EMAILS_PER_BATCH} leads per bulk contact request"
+        )
+    
+    if template not in EMAIL_TEMPLATES:
+        template = "initial_outreach"
+    
+    # Fetch eligible leads
+    result = await db.execute(
+        select(Lead).where(
+            and_(
+                Lead.id.in_(lead_ids),
+                Lead.status == LeadStatus.SCORED,
+                Lead.email.isnot(None),
+                Lead.do_not_contact == False,
+            )
+        )
+    )
+    leads = result.scalars().all()
+    
+    if not leads:
+        raise HTTPException(
+            status_code=400,
+            detail="No eligible leads found. Need leads in SCORED status with email."
+        )
+    
+    email_outreach = EmailOutreach()
+    sent_count = 0
+    failed_count = 0
+    results = []
+    
+    for lead in leads:
+        try:
+            if custom_subject and custom_body:
+                # Manual email
+                response = await email_outreach.send(
+                    to_email=lead.email,
+                    subject=custom_subject,
+                    body=custom_body,
+                    lead_id=lead.id,
+                    business_name=lead.business_name,
+                    ai_generated=False,
+                )
+            else:
+                # AI-generated email
+                response = await email_outreach.generate_and_send(
+                    lead=lead,
+                    template_key=template,
+                )
+            
+            # Record interaction
+            interaction = Interaction(
+                lead_id=lead.id,
+                interaction_type="email",
+                direction="outbound",
+                subject=response.get("subject", custom_subject or ""),
+                content=f"Bulk contact sent via template: {template}",
+                email_status="sent",
+                email_message_id=response.get("id"),
+                meta={
+                    "template": template,
+                    "ai_generated": not (custom_subject and custom_body),
+                    "bulk_contact": True,
+                },
+            )
+            db.add(interaction)
+            
+            # Update lead status
+            lead.status = LeadStatus.CONTACTED
+            lead.last_contact_at = datetime.utcnow()
+            
+            sent_count += 1
+            results.append({"lead_id": lead.id, "status": "sent", "message_id": response.get("id")})
+            
+        except Exception as e:
+            failed_count += 1
+            logger.error(f"Bulk contact failed for lead {lead.id}: {e}")
+            results.append({"lead_id": lead.id, "status": "failed", "error": str(e)})
+            
+            # Record failed interaction
+            interaction = Interaction(
+                lead_id=lead.id,
+                interaction_type="email",
+                direction="outbound",
+                content=f"Bulk contact FAILED: {str(e)}",
+                email_status="bounced",
+                meta={"template": template, "bulk_contact": True, "error": str(e)},
+            )
+            db.add(interaction)
+    
+    await db.commit()
+    
+    return {
+        "total_requested": len(lead_ids),
+        "eligible": len(leads),
+        "sent": sent_count,
+        "failed": failed_count,
+        "results": results,
+    }

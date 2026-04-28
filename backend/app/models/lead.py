@@ -91,12 +91,22 @@ class Lead(Base):
     team_names: Mapped[Optional[list]] = mapped_column(JSON)
     proposal_suggestion: Mapped[Optional[str]] = mapped_column(Text)
     
+    # Brand extraction (from website)
+    brand_primary_color: Mapped[Optional[str]] = mapped_column(String(20))
+    brand_secondary_color: Mapped[Optional[str]] = mapped_column(String(20))
+    brand_logo_url: Mapped[Optional[str]] = mapped_column(String(500))
+    
     # Engagement tracking
     email_opened_count: Mapped[int] = mapped_column(Integer, default=0)
     email_clicked_count: Mapped[int] = mapped_column(Integer, default=0)
     call_count: Mapped[int] = mapped_column(Integer, default=0)
     last_contact_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     next_follow_up_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    # Cold calling
+    next_call_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    call_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_call_result: Mapped[Optional[str]] = mapped_column(String(50))
     
     # Compliance
     consent_status: Mapped[Optional[str]] = mapped_column(String(50), default="pending")

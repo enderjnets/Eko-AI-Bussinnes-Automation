@@ -324,8 +324,11 @@ async def send_booking_link_from_crm(
     if lead.do_not_contact:
         raise HTTPException(status_code=400, detail="Lead is marked as do-not-contact")
 
-    # Build booking link
-    booking_link = f"https://cal.com/eko-ai/demo?email={lead.email}&name={lead.business_name}"
+    # Build booking link — use Cal.com username from settings or default
+    from app.config import get_settings
+    settings = get_settings()
+    cal_username = getattr(settings, 'CAL_COM_USERNAME', 'eko-ai')
+    booking_link = f"https://cal.com/{cal_username}/demo?email={lead.email}&name={lead.business_name}"
 
     email = EmailOutreach()
     subject = f"Let's schedule a quick call — {lead.business_name}"

@@ -1,16 +1,22 @@
 from typing import Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.models.campaign import Campaign, CampaignStatus
+from app.models.campaign import Campaign, CampaignStatus, CampaignLead
+from app.models.lead import Lead, LeadStatus, Interaction
 from app.models.user import User
 from app.schemas.campaign import CampaignCreate, CampaignUpdate, CampaignResponse, CampaignLaunchRequest
+from app.agents.outreach.channels.email import EmailOutreach, EMAIL_TEMPLATES
 from app.services.paperclip import on_campaign_launched
 from app.core.security import get_current_user
 
 router = APIRouter()
+
+# Campaign launch rate limit: max emails per batch to protect domain reputation
+MAX_CAMPAIGN_EMAILS_PER_BATCH = 50
 
 
 @router.get("", response_model=list[CampaignResponse])
@@ -84,7 +90,14 @@ async def launch_campaign(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    """
+    Launch a campaign: send personalized emails to all eligible leads.
+    Only sends to leads in SCORED status with email and do_not_contact=False.
+    Respects MAX_CAMPAIGN_EMAILS_PER_BATCH to protect sender reputation.
+    """
+    result = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id)
+    )
     campaign = result.scalar_one_or_none()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -92,7 +105,104 @@ async def launch_campaign(
     if campaign.status == CampaignStatus.ACTIVE:
         raise HTTPException(status_code=400, detail="Campaign already active")
     
+    # Fetch eligible leads for this campaign
+    leads_result = await db.execute(
+        select(Lead)
+        .join(CampaignLead, Lead.id == CampaignLead.lead_id)
+        .where(
+            and_(
+                CampaignLead.campaign_id == campaign_id,
+                Lead.status == LeadStatus.SCORED,
+                Lead.email.isnot(None),
+                Lead.do_not_contact == False,
+            )
+        )
+    )
+    leads = leads_result.scalars().all()
+    
+    if not leads:
+        raise HTTPException(
+            status_code=400,
+            detail="No eligible leads found for this campaign. Need leads in SCORED status with email."
+        )
+    
+    # Rate limit: cap batch size
+    leads_to_contact = leads[:MAX_CAMPAIGN_EMAILS_PER_BATCH]
+    
+    email_outreach = EmailOutreach()
+    sent_count = 0
+    failed_count = 0
+    
+    for lead in leads_to_contact:
+        try:
+            # Determine template key: campaign may store template_key in meta or default to initial_outreach
+            template_key = "initial_outreach"
+            if campaign.meta and isinstance(campaign.meta, dict):
+                template_key = campaign.meta.get("template_key", "initial_outreach")
+            if template_key not in EMAIL_TEMPLATES:
+                template_key = "initial_outreach"
+            
+            campaign_context = campaign.description or ""
+            
+            response = await email_outreach.generate_and_send(
+                lead=lead,
+                template_key=template_key,
+                campaign_context=campaign_context,
+                campaign_id=campaign.id,
+            )
+            
+            # Record interaction
+            interaction = Interaction(
+                lead_id=lead.id,
+                interaction_type="email",
+                direction="outbound",
+                subject=response.get("subject", ""),
+                content=f"Campaign email sent via {campaign.name}",
+                email_status="sent",
+                email_message_id=response.get("id"),
+                meta={
+                    "campaign_id": campaign.id,
+                    "campaign_name": campaign.name,
+                    "template": template_key,
+                    "ai_generated": True,
+                },
+            )
+            db.add(interaction)
+            
+            # Update lead status
+            lead.status = LeadStatus.CONTACTED
+            lead.last_contact_at = datetime.utcnow()
+            
+            sent_count += 1
+            
+        except Exception as e:
+            failed_count += 1
+            # Log error but continue with other leads
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to send campaign email to lead {lead.id}: {e}")
+            
+            # Record failed interaction
+            interaction = Interaction(
+                lead_id=lead.id,
+                interaction_type="email",
+                direction="outbound",
+                content=f"Campaign email FAILED: {str(e)}",
+                email_status="bounced",
+                meta={
+                    "campaign_id": campaign.id,
+                    "campaign_name": campaign.name,
+                    "error": str(e),
+                },
+            )
+            db.add(interaction)
+    
+    # Update campaign stats
     campaign.status = CampaignStatus.ACTIVE
+    campaign.started_at = datetime.utcnow()
+    campaign.leads_total = len(leads)
+    campaign.leads_contacted = sent_count
+    
     await db.commit()
     await db.refresh(campaign)
     

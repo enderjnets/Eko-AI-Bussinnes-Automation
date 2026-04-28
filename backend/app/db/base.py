@@ -29,6 +29,17 @@ def _get_engine():
     return _engine
 
 
+def recreate_engine():
+    """Dispose existing engine and reset globals so a fresh engine is created.
+    Called by Celery worker_process_init to avoid 'Future attached to a different loop'.
+    """
+    global _engine, _AsyncSessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _AsyncSessionLocal = None
+
+
 def _get_session_maker():
     global _AsyncSessionLocal
     if _AsyncSessionLocal is None:

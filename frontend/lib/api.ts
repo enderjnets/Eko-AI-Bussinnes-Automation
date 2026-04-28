@@ -47,6 +47,8 @@ export const authApi = {
     api.get("/auth/me"),
   refresh: (refreshToken: string) =>
     api.post("/auth/refresh", { refresh_token: refreshToken }),
+  updateMe: (data: { full_name?: string; email?: string; password?: string }) =>
+    api.patch("/auth/me", data),
 };
 
 // Leads API
@@ -63,6 +65,8 @@ export const leadsApi = {
     api.post("/leads/search", data),
   autocomplete: (q: string, limit?: number) =>
     api.get("/leads/autocomplete/names", { params: { q, limit } }),
+  bulkContact: (leadIds: number[], template?: string, customSubject?: string, customBody?: string) =>
+    api.post("/leads/bulk/contact", { lead_ids: leadIds, template, custom_subject: customSubject, custom_body: customBody }),
 };
 
 // CRM API
@@ -91,6 +95,7 @@ export const campaignsApi = {
 export const analyticsApi = {
   pipeline: () => api.get("/analytics/pipeline"),
   performance: () => api.get("/analytics/performance"),
+  campaign: (id: number) => api.get(`/analytics/campaigns/${id}`),
 };
 
 // Emails API
@@ -99,6 +104,91 @@ export const emailsApi = {
     api.post(`/emails/${leadId}/send`, { subject, body }),
   generateAndSend: (leadId: number, context?: string) =>
     api.post(`/emails/${leadId}/generate-and-send`, { campaign_context: context }),
+  inbox: (params?: { status?: string; lead_id?: number; limit?: number; offset?: number }) =>
+    api.get("/emails/inbox", { params }),
+  markRead: (interactionId: number) =>
+    api.post(`/emails/${interactionId}/mark-read`),
+  simulateReply: (leadId: number, subject: string, body: string, fromEmail?: string) =>
+    api.post("/emails/simulate-reply", { lead_id: leadId, subject, body, from_email: fromEmail }),
+  aiReply: (interactionId: number, data: { tone?: string; max_length?: string; custom_instructions?: string }) =>
+    api.post(`/emails/${interactionId}/ai-reply`, data),
+  sendReply: (interactionId: number, data: { subject: string; body: string; send_email?: boolean }) =>
+    api.post(`/emails/${interactionId}/send-reply`, data),
+  conversation: (interactionId: number) =>
+    api.get(`/emails/${interactionId}/conversation`),
+};
+
+// Sequences API
+export const sequencesApi = {
+  list: (status?: string) => api.get("/sequences", { params: { status } }),
+  get: (id: number) => api.get(`/sequences/${id}`),
+  create: (data: any) => api.post("/sequences", data),
+  update: (id: number, data: any) => api.patch(`/sequences/${id}`, data),
+  addStep: (id: number, data: any) => api.post(`/sequences/${id}/steps`, data),
+  deleteStep: (sequenceId: number, stepId: number) => api.delete(`/sequences/${sequenceId}/steps/${stepId}`),
+  enroll: (id: number, leadIds: number[]) => api.post(`/sequences/${id}/enroll`, leadIds),
+  execute: (id: number, leadIds: number[], dryRun?: boolean) => api.post(`/sequences/${id}/execute`, { lead_ids: leadIds, dry_run: dryRun ?? false }),
+};
+
+// Phone Calls API
+export const phoneCallsApi = {
+  create: (data: { lead_id: number; result: string; notes?: string; interest_level?: string; next_action?: string; call_duration_seconds?: number; scheduled_at?: string }) =>
+    api.post("/phone-calls", data),
+  scheduled: () => api.get("/phone-calls/scheduled"),
+  byLead: (leadId: number) => api.get(`/phone-calls/lead/${leadId}`),
+};
+
+// Settings API
+export const settingsApi = {
+  list: (category?: string) => api.get("/settings", { params: { category } }),
+  get: (key: string) => api.get(`/settings/${key}`),
+  create: (data: any) => api.post("/settings", data),
+  update: (key: string, data: any) => api.patch(`/settings/${key}`, data),
+  bulkUpdate: (settings: Record<string, string>, category?: string) =>
+    api.post("/settings/bulk", { settings, category }),
+  delete: (key: string) => api.delete(`/settings/${key}`),
+};
+
+// Deals API
+export const dealsApi = {
+  list: (params?: { status?: string; lead_id?: number; min_value?: number; max_value?: number; assigned_to?: string; limit?: number; offset?: number }) =>
+    api.get("/deals", { params }),
+  get: (id: number) => api.get(`/deals/${id}`),
+  create: (data: any) => api.post("/deals", data),
+  update: (id: number, data: any) => api.patch(`/deals/${id}`, data),
+  delete: (id: number) => api.delete(`/deals/${id}`),
+  byLead: (leadId: number) => api.get(`/deals/lead/${leadId}/deals`),
+  forecast: () => api.get("/deals/forecast/revenue"),
+};
+
+// Proposals API
+export const proposalsApi = {
+  list: (params?: { status?: string; deal_id?: number; search?: string; limit?: number; offset?: number }) =>
+    api.get("/proposals", { params }),
+  get: (id: number) => api.get(`/proposals/${id}`),
+  create: (data: any) => api.post("/proposals", data),
+  update: (id: number, data: any) => api.patch(`/proposals/${id}`, data),
+  delete: (id: number) => api.delete(`/proposals/${id}`),
+  generate: (id: number, data?: any) => api.post(`/proposals/${id}/generate`, data || {}),
+  send: (id: number) => api.post(`/proposals/${id}/send`),
+  duplicate: (id: number) => api.post(`/proposals/${id}/duplicate`),
+  public: (token: string) => api.get(`/proposals/public/${token}`),
+  accept: (token: string) => api.post(`/proposals/public/${token}/accept`),
+  reject: (token: string, feedback?: string) => api.post(`/proposals/public/${token}/reject`, null, { params: { feedback } }),
+};
+
+// Voice Agent API
+export const voiceAgentApi = {
+  startCall: (data: { lead_id: number; assistant_id?: string; first_message?: string; custom_instructions?: string; schedule_now?: boolean }) =>
+    api.post("/voice-agent/calls", data),
+  listCalls: (params?: { lead_id?: number; status?: string; limit?: number; offset?: number }) =>
+    api.get("/voice-agent/calls", { params }),
+  getCall: (id: number) => api.get(`/voice-agent/calls/${id}`),
+  createAssistant: (data: { name: string; system_prompt?: string; first_message?: string; voice_provider?: string; voice_id?: string; model?: string }) =>
+    api.post("/voice-agent/assistants", data),
+  updateAssistant: (id: string, data: { name?: string; system_prompt?: string; first_message?: string; voice_id?: string }) =>
+    api.patch(`/voice-agent/assistants/${id}`, data),
+  getConfig: () => api.get("/voice-agent/config"),
 };
 
 // Calendar API

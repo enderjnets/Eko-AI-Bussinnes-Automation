@@ -5,12 +5,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api.v1 import leads, campaigns, emails, analytics, webhooks, crm, sequences, auth, calendar
+from app.api.v1 import leads, campaigns, emails, analytics, webhooks, crm, sequences, auth, calendar, phone_calls, settings as settings_router, deals, proposals, voice_agent
 
 # Ensure all models are registered in Base.metadata
+from app.models.lead import Lead  # noqa: F401
 from app.models.sequence import EmailSequence, SequenceStep, SequenceEnrollment  # noqa: F401
 from app.models.user import User  # noqa: F401
 from app.models.booking import Booking  # noqa: F401
+from app.models.phone_call import PhoneCall  # noqa: F401
+from app.models.setting import AppSetting  # noqa: F401
+from app.models.deal import Deal  # noqa: F401
+from app.models.proposal import Proposal  # noqa: F401
 from app.db.base import init_db
 
 settings = get_settings()
@@ -58,7 +63,12 @@ app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["analytic
 app.include_router(sequences.router, prefix="/api/v1/sequences", tags=["sequences"])
 app.include_router(calendar.router, prefix="/api/v1/calendar", tags=["calendar"])
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(phone_calls.router, prefix="/api/v1/phone-calls", tags=["phone_calls"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["webhooks"])
+app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["settings"])
+app.include_router(deals.router, prefix="/api/v1/deals", tags=["deals"])
+app.include_router(proposals.router, prefix="/api/v1/proposals", tags=["proposals"])
+app.include_router(voice_agent.router, prefix="/api/v1/voice-agent", tags=["voice_agent"])
 
 
 @app.get("/health")

@@ -14,15 +14,28 @@ resend.api_key = settings.RESEND_API_KEY
 logger = logging.getLogger(__name__)
 
 
-# Email templates library
+# Email templates library — optimized based on 2025-2026 B2B benchmarks
+# Key principles: <125 words, <7 word subject lines, value-first, 1 CTA, human tone
 EMAIL_TEMPLATES = {
     "initial_outreach": {
         "subject": "Quick question about {business_name}",
-        "context": "First contact introducing AI voice agents for small businesses",
+        "context": "First contact introducing AI voice agents for small businesses. Keep it under 125 words, mention a specific pain point, and ask for a 15-min call.",
     },
-    "follow_up": {
+    "follow_up_1": {
         "subject": "Following up — {business_name}",
-        "context": "Follow-up after no response to initial email",
+        "context": "Follow-up after no response. Add brief social proof (one sentence about a similar business we helped). Keep it shorter than the first email.",
+    },
+    "follow_up_2": {
+        "subject": "Last try — {business_name}",
+        "context": "Final follow-up before breakup. Offer a valuable resource (case study, tip, or insight) relevant to their industry. No guilt trips.",
+    },
+    "breakup": {
+        "subject": "Cerrando tu archivo — {business_name}",
+        "context": "Pattern-interrupt breakup email. Tell them you're closing their file but leave the door open. Unexpected, honest tone. This often gets replies from busy people.",
+    },
+    "booking_confirmation": {
+        "subject": "Confirmed — {business_name}",
+        "context": "Post-booking confirmation email. Include Cal.com link, prep questions, and what to expect on the call. Build excitement and reduce no-shows.",
     },
     "meeting_request": {
         "subject": "15 min to show you something — {business_name}",
@@ -133,14 +146,22 @@ Return ONLY a JSON object with:
     
     def _add_compliance_footer(self, body: str, lead_id: int) -> str:
         """Add TCPA/CAN-SPAM compliance footer to email."""
+        app_url = settings.APP_URL.rstrip("/")
         footer = f"""
 <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999;">
   <p>[AI-generated message] — Eko AI Automation LLC, Denver, CO</p>
   <p>You're receiving this because your business matches our service area.</p>
-  <p><a href="http://localhost:8000/api/v1/webhooks/unsubscribe?lead_id={lead_id}">Unsubscribe</a> | Reply STOP to opt out</p>
+  <p><a href="{app_url}/api/v1/webhooks/unsubscribe?lead_id={lead_id}">Unsubscribe</a> | Reply STOP to opt out</p>
 </div>
 """
         return body + footer
+
+    def _add_tracking_pixel(self, body: str, lead_id: int, message_id: str) -> str:
+        """Add 1x1 transparent tracking pixel for open tracking."""
+        app_url = settings.APP_URL.rstrip("/")
+        pixel_url = f"{app_url}/api/v1/webhooks/track/open?lead_id={lead_id}&message_id={message_id}"
+        pixel = f'<img src="{pixel_url}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;" />'
+        return body + pixel
     
     async def send(
         self,
@@ -151,24 +172,34 @@ Return ONLY a JSON object with:
         business_name: str = "",
         ai_generated: bool = True,
         tags: Optional[list] = None,
+        campaign_id: Optional[int] = None,
     ) -> dict:
         """
-        Send an email via Resend.
+        Send an email via Resend with tracking pixel embedded.
         
         Returns:
             Resend API response with message_id
         """
         try:
             email_tags = [{"name": "lead_id", "value": str(lead_id)}] if lead_id else []
+            if campaign_id:
+                email_tags.append({"name": "campaign_id", "value": str(campaign_id)})
             if tags:
                 for tag in tags:
                     email_tags.append({"name": tag, "value": "true"})
+            
+            # Build body with tracking pixel before sending
+            tracking_body = body
+            if lead_id:
+                # Use lead_id as the message_id for the pixel so we can track opens
+                # even without knowing the Resend message_id beforehand
+                tracking_body = self._add_tracking_pixel(body, lead_id, f"lead_{lead_id}")
             
             params = {
                 "from": self.from_email,
                 "to": [to_email],
                 "subject": subject,
-                "html": body,
+                "html": tracking_body,
                 "tags": email_tags,
             }
             
@@ -211,6 +242,7 @@ Return ONLY a JSON object with:
         lead: Lead,
         template_key: str = "initial_outreach",
         campaign_context: str = "",
+        campaign_id: Optional[int] = None,
     ) -> dict:
         """Generate a personalized email and send it."""
         email_data = await self.generate_email(
@@ -227,6 +259,7 @@ Return ONLY a JSON object with:
             business_name=lead.business_name,
             ai_generated=True,
             tags=["ai_generated", template_key],
+            campaign_id=campaign_id,
         )
         
         return {
