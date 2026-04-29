@@ -103,11 +103,15 @@ async def get_inbox(
         query = query.where(Interaction.lead_id == lead_id)
     
     if status == "unread":
+        from sqlalchemy import or_
         query = query.where(
-            (Interaction.meta == None) | (~Interaction.meta.has_key("read"))
+            or_(
+                Interaction.meta.is_(None),
+                Interaction.meta.op("?")("read") == False,
+            )
         )
     elif status == "read":
-        query = query.where(Interaction.meta.has_key("read"))
+        query = query.where(Interaction.meta.op("?")("read") == True)
     
     # Count total
     count_query = query.with_only_columns(
