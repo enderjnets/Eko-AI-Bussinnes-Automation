@@ -79,6 +79,7 @@ async def generate_and_send_email(
 @router.get("/inbox")
 async def get_inbox(
     status: Optional[str] = None,  # "unread", "read", "all"
+    direction: Optional[str] = None,  # "inbound", "outbound", "all"
     lead_id: Optional[int] = None,
     limit: int = 50,
     offset: int = 0,
@@ -86,18 +87,24 @@ async def get_inbox(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Get inbound email replies (the inbox).
+    Get email interactions (inbox, sent, or all).
     
-    Returns interactions with direction='inbound' and interaction_type='email',
+    Returns interactions with interaction_type='email',
     enriched with lead info and AI analysis.
     """
     query = (
         select(Interaction, Lead)
         .join(Lead, Interaction.lead_id == Lead.id)
         .where(Interaction.interaction_type == "email")
-        .where(Interaction.direction == "inbound")
         .order_by(desc(Interaction.created_at))
     )
+    
+    # Direction filter
+    if direction == "inbound":
+        query = query.where(Interaction.direction == "inbound")
+    elif direction == "outbound":
+        query = query.where(Interaction.direction == "outbound")
+    # else "all" or None — no direction filter
     
     if lead_id:
         query = query.where(Interaction.lead_id == lead_id)
@@ -113,14 +120,14 @@ async def get_inbox(
     elif status == "read":
         query = query.where(Interaction.meta.op("?")("read") == True)
     
-    # Count total
-    count_query = query.with_only_columns(
-        select(Interaction.id).where(Interaction.interaction_type == "email").where(Interaction.direction == "inbound").correlate(Lead).subquery().columns.id
-    )
-    # Simpler count
-    count_result = await db.execute(
-        select(Interaction).where(Interaction.interaction_type == "email").where(Interaction.direction == "inbound")
-    )
+    # Count total (with same filters)
+    count_query = select(Interaction).where(Interaction.interaction_type == "email")
+    if direction == "inbound":
+        count_query = count_query.where(Interaction.direction == "inbound")
+    elif direction == "outbound":
+        count_query = count_query.where(Interaction.direction == "outbound")
+    
+    count_result = await db.execute(count_query)
     total = len(count_result.scalars().all())
     
     result = await db.execute(query.offset(offset).limit(limit))
@@ -135,6 +142,7 @@ async def get_inbox(
             "lead_status": lead.status.value if lead.status else None,
             "subject": interaction.subject,
             "content": interaction.content,
+            "direction": interaction.direction,
             "sentiment": meta.get("sentiment"),
             "intent": meta.get("intent"),
             "summary": meta.get("summary"),
@@ -147,10 +155,23 @@ async def get_inbox(
             "created_at": interaction.created_at.isoformat() if interaction.created_at else None,
         })
     
+    # Count unread (only inbound)
+    unread_query = select(Interaction).where(
+        Interaction.interaction_type == "email",
+        Interaction.direction == "inbound",
+    ).where(
+        or_(
+            Interaction.meta.is_(None),
+            Interaction.meta.op("?")("read") == False,
+        )
+    )
+    unread_result = await db.execute(unread_query)
+    unread_total = len(unread_result.scalars().all())
+    
     return {
         "total": total,
         "items": items,
-        "unread_count": sum(1 for i in items if not i["read"]),
+        "unread_count": unread_total,
     }
 
 
@@ -420,6 +441,82 @@ async def send_email_reply(
     
     return {
         "status": "sent" if data.send_email else "draft_saved",
+        "interaction_id": outbound.id,
+        "message_id": message_id,
+        "lead_id": lead.id,
+    }
+
+
+class QuickReplyRequest(BaseModel):
+    subject: str
+    body: str
+
+
+@router.post("/{interaction_id}/reply-manual")
+async def send_quick_reply(
+    interaction_id: int,
+    data: QuickReplyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a quick manual reply to an inbound email (no AI generation)."""
+    # Get the inbound interaction
+    result = await db.execute(
+        select(Interaction).where(Interaction.id == interaction_id)
+    )
+    interaction = result.scalar_one_or_none()
+    if not interaction:
+        raise HTTPException(status_code=404, detail="Interaction not found")
+    
+    # Get the lead
+    result = await db.execute(
+        select(Lead).where(Lead.id == interaction.lead_id)
+    )
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    if not lead.email:
+        raise HTTPException(status_code=400, detail="Lead has no email address")
+    
+    if lead.do_not_contact:
+        raise HTTPException(status_code=400, detail="Lead is marked as do-not-contact")
+    
+    # Send via Resend
+    email_outreach = EmailOutreach()
+    response = await email_outreach.send(
+        to_email=lead.email,
+        subject=data.subject,
+        body=data.body,
+        lead_id=lead.id,
+    )
+    message_id = response.get("id")
+    
+    # Create outbound interaction record
+    outbound = Interaction(
+        lead_id=lead.id,
+        interaction_type="email",
+        direction="outbound",
+        subject=data.subject,
+        content=data.body,
+        email_message_id=message_id,
+        meta={
+            "reply_to": interaction_id,
+            "sent_by_user": current_user.id,
+            "sent_at": datetime.utcnow().isoformat(),
+            "ai_generated": False,
+        },
+    )
+    db.add(outbound)
+    
+    # Update lead's last_contact_at
+    lead.last_contact_at = datetime.utcnow()
+    
+    await db.commit()
+    await db.refresh(outbound)
+    
+    return {
+        "status": "sent",
         "interaction_id": outbound.id,
         "message_id": message_id,
         "lead_id": lead.id,

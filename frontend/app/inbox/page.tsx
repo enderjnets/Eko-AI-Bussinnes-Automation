@@ -34,6 +34,7 @@ interface InboxItem {
   lead_status: string;
   subject: string;
   content: string;
+  direction: string;
   sentiment: string;
   intent: string;
   summary: string;
@@ -66,6 +67,7 @@ export default function InboxPage() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread" | "high_priority">("all");
+  const [folder, setFolder] = useState<"inbox" | "sent" | "all">("inbox");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [markingRead, setMarkingRead] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -89,11 +91,20 @@ export default function InboxPage() {
   const [conversation, setConversation] = useState<ConversationItem[]>([]);
   const [loadingConversation, setLoadingConversation] = useState(false);
 
+  // Quick manual reply state
+  const [quickReplySubject, setQuickReplySubject] = useState("");
+  const [quickReplyBody, setQuickReplyBody] = useState("");
+  const [sendingQuickReply, setSendingQuickReply] = useState(false);
+  const [quickReplyError, setQuickReplyError] = useState("");
+
   const loadInbox = useCallback(async () => {
     setLoading(true);
     try {
       const params: any = {};
       if (filter === "unread") params.status = "unread";
+      if (folder === "inbox") params.direction = "inbound";
+      else if (folder === "sent") params.direction = "outbound";
+      // folder === "all" → no direction filter
       const res = await emailsApi.inbox(params);
       let data = res.data?.items || [];
       if (filter === "high_priority") {
@@ -105,7 +116,7 @@ export default function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, [filter, folder]);
 
   useEffect(() => {
     loadInbox();
@@ -216,6 +227,28 @@ export default function InboxPage() {
     }
   };
 
+  const handleQuickReply = async (item: InboxItem) => {
+    if (!quickReplySubject.trim() || !quickReplyBody.trim()) return;
+    setSendingQuickReply(true);
+    setQuickReplyError("");
+    try {
+      await emailsApi.replyManual(item.id, {
+        subject: quickReplySubject,
+        body: quickReplyBody,
+      });
+      setQuickReplySubject("");
+      setQuickReplyBody("");
+      // Refresh conversation
+      const res = await emailsApi.conversation(item.id);
+      setConversation(res.data?.items || []);
+      loadInbox();
+    } catch (err: any) {
+      setQuickReplyError(err.response?.data?.detail || "Error enviando respuesta");
+    } finally {
+      setSendingQuickReply(false);
+    }
+  };
+
   const sentimentIcon = (s: string) => {
     switch (s) {
       case "positive":
@@ -321,7 +354,9 @@ export default function InboxPage() {
               <Inbox className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold font-display">Inbox</h1>
+              <h1 className="text-2xl font-bold font-display">
+                {folder === "inbox" ? "Recibidos" : folder === "sent" ? "Enviados" : "Todos los emails"}
+              </h1>
               <p className="text-gray-400 text-sm">
                 {unreadCount > 0
                   ? `${unreadCount} mensaje${unreadCount > 1 ? "s" : ""} sin leer`
@@ -359,6 +394,23 @@ export default function InboxPage() {
             </button>
           </div>
         )}
+
+        {/* Folder tabs */}
+        <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 mb-4 w-fit">
+          {(["inbox", "sent", "all"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFolder(f)}
+              className={`px-3 py-1.5 rounded-md text-sm capitalize transition-colors ${
+                folder === f
+                  ? "bg-white/10 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {f === "inbox" ? "Recibidos" : f === "sent" ? "Enviados" : "Todos"}
+            </button>
+          ))}
+        </div>
 
         {/* Filters */}
         <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 mb-6 w-fit">
@@ -410,7 +462,21 @@ export default function InboxPage() {
                   {/* Header row */}
                   <div
                     className="p-4 cursor-pointer"
-                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                    onClick={async () => {
+                      const nextExpanded = isExpanded ? null : item.id;
+                      setExpandedId(nextExpanded);
+                      if (nextExpanded) {
+                        setLoadingConversation(true);
+                        try {
+                          const res = await emailsApi.conversation(item.id);
+                          setConversation(res.data?.items || []);
+                        } catch (err) {
+                          console.error(err);
+                        } finally {
+                          setLoadingConversation(false);
+                        }
+                      }
+                    }}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -430,6 +496,13 @@ export default function InboxPage() {
                           </span>
                           <span className="text-xs text-gray-500">
                             {item.lead_email}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                            item.direction === "outbound"
+                              ? "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                              : "bg-eko-blue/10 text-eko-blue border-eko-blue/20"
+                          }`}>
+                            {item.direction === "outbound" ? "Enviado" : "Recibido"}
                           </span>
                           {item.auto_status_changed && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-eko-green/10 text-eko-green border border-eko-green/20">
@@ -508,11 +581,11 @@ export default function InboxPage() {
                     </div>
                   </div>
 
-                  {/* Expanded content */}
+                  {/* Expanded content — Thread View */}
                   {isExpanded && (
                     <div className="px-4 pb-4 border-t border-white/5 pt-3">
-                      {/* AI Summary */}
-                      {item.summary && (
+                      {/* AI Summary (only for inbound) */}
+                      {item.direction === "inbound" && item.summary && (
                         <div className="mb-3 rounded-lg bg-white/5 p-3">
                           <div className="flex items-center gap-2 mb-1">
                             <Zap className="w-3.5 h-3.5 text-eko-blue" />
@@ -524,51 +597,102 @@ export default function InboxPage() {
                         </div>
                       )}
 
-                      {/* Original content */}
-                      <div className="mb-3">
-                        <p className="text-sm text-gray-300 whitespace-pre-wrap">
-                          {item.content}
-                        </p>
+                      {/* Thread / Conversation */}
+                      <div className="mb-4">
+                        <p className="text-xs text-gray-500 font-medium mb-2">Conversación</p>
+                        {loadingConversation ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                          </div>
+                        ) : conversation.length > 0 ? (
+                          <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+                            {conversation.map((msg) => (
+                              <div
+                                key={msg.id}
+                                className={`flex ${
+                                  msg.direction === "outbound" ? "justify-end" : "justify-start"
+                                }`}
+                              >
+                                <div
+                                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
+                                    msg.direction === "outbound"
+                                      ? "bg-purple-600/20 border border-purple-500/30 text-gray-200 rounded-br-md"
+                                      : "bg-white/5 border border-white/10 text-gray-300 rounded-bl-md"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                                      {msg.direction === "outbound" ? "Nosotros" : "Cliente"}
+                                    </span>
+                                    <span className="text-[10px] text-gray-600">
+                                      {new Date(msg.created_at).toLocaleString("es-ES", {
+                                        day: "numeric",
+                                        month: "short",
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                      })}
+                                    </span>
+                                  </div>
+                                  <p className="font-medium text-xs mb-1 opacity-80">{msg.subject}</p>
+                                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-500 italic">No hay mensajes previos en esta conversación.</p>
+                        )}
                       </div>
 
-                      {/* Key points */}
-                      {item.key_points && item.key_points.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-xs text-gray-500 mb-1">Puntos clave:</p>
-                          <ul className="space-y-1">
-                            {item.key_points.map((point, idx) => (
-                              <li
-                                key={idx}
-                                className="text-sm text-gray-300 flex items-start gap-2"
-                              >
-                                <AlertCircle className="w-3.5 h-3.5 text-gold mt-0.5 shrink-0" />
-                                {point}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Next action */}
-                      {item.next_action && (
-                        <div className="flex items-center gap-2 rounded-lg bg-eko-green/5 border border-eko-green/10 p-3 mb-3">
-                          <CheckCircle className="w-4 h-4 text-eko-green shrink-0" />
-                          <div>
-                            <p className="text-xs text-gray-500">Acción recomendada</p>
-                            <p className="text-sm text-eko-green">{item.next_action}</p>
-                          </div>
+                      {/* Quick Manual Reply */}
+                      {item.direction === "inbound" && (
+                        <div className="mb-4 rounded-lg bg-white/[0.03] border border-white/10 p-3">
+                          <p className="text-xs text-gray-500 font-medium mb-2">Responder rápido</p>
+                          {quickReplyError && (
+                            <div className="p-2 mb-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs">
+                              {quickReplyError}
+                            </div>
+                          )}
+                          <input
+                            type="text"
+                            placeholder="Asunto"
+                            value={quickReplySubject}
+                            onChange={(e) => setQuickReplySubject(e.target.value)}
+                            className="w-full px-3 py-2 mb-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:ring-2 focus:ring-eko-blue placeholder-gray-600"
+                          />
+                          <textarea
+                            placeholder="Escribe tu respuesta..."
+                            value={quickReplyBody}
+                            onChange={(e) => setQuickReplyBody(e.target.value)}
+                            rows={3}
+                            className="w-full px-3 py-2 mb-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:ring-2 focus:ring-eko-blue resize-none placeholder-gray-600"
+                          />
+                          <button
+                            onClick={() => handleQuickReply(item)}
+                            disabled={sendingQuickReply || !quickReplySubject.trim() || !quickReplyBody.trim()}
+                            className="flex items-center gap-2 px-4 py-2 bg-eko-blue text-white rounded-lg hover:bg-eko-blue/80 transition-colors disabled:opacity-50 text-sm"
+                          >
+                            {sendingQuickReply ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Send className="w-4 h-4" />
+                            )}
+                            Enviar respuesta
+                          </button>
                         </div>
                       )}
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => openReplyModal(item)}
-                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                        >
-                          <Wand2 className="w-4 h-4" />
-                          Responder con IA
-                        </button>
+                        {item.direction === "inbound" && (
+                          <button
+                            onClick={() => openReplyModal(item)}
+                            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                          >
+                            <Wand2 className="w-4 h-4" />
+                            Responder con IA
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDelete(item.id)}
                           disabled={deletingIds.has(item.id)}

@@ -104,8 +104,10 @@ export const emailsApi = {
     api.post(`/emails/${leadId}/send`, { subject, body }),
   generateAndSend: (leadId: number, context?: string) =>
     api.post(`/emails/${leadId}/generate-and-send`, { campaign_context: context }),
-  inbox: (params?: { status?: string; lead_id?: number; limit?: number; offset?: number }) =>
+  inbox: (params?: { status?: string; direction?: string; lead_id?: number; limit?: number; offset?: number }) =>
     api.get("/emails/inbox", { params }),
+  replyManual: (interactionId: number, data: { subject: string; body: string }) =>
+    api.post(`/emails/${interactionId}/reply-manual`, data),
   markRead: (interactionId: number) =>
     api.post(`/emails/${interactionId}/mark-read`),
   simulateReply: (leadId: number, subject: string, body: string, fromEmail?: string) =>
