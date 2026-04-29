@@ -2,7 +2,7 @@ from typing import Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
@@ -110,7 +110,6 @@ async def get_inbox(
         query = query.where(Interaction.lead_id == lead_id)
     
     if status == "unread":
-        from sqlalchemy import or_
         query = query.where(
             or_(
                 Interaction.meta.is_(None),
