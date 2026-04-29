@@ -138,20 +138,35 @@ Genera la respuesta ahora."""
             "suggested_next_action": result.get("suggested_next_action", ""),
         }
     except Exception as e:
-        # Fallback reply
+        # Fallback reply — still respects tone and length
+        length_text = {
+            "short": "¿Podrías confirmarnos tu disponibilidad para una breve llamada?",
+            "medium": "¿Podrías confirmarnos cuál es el mejor horario para una breve llamada de 15 minutos? Nos encantaría entender mejor tus necesidades.",
+            "long": "¿Podrías confirmarnos cuál es el mejor horario para una breve llamada de 15 minutos? Nos encantaría entender mejor tus necesidades y explorar cómo podemos ayudarte a alcanzar tus objetivos.",
+        }.get(max_length, "¿Podrías confirmarnos cuál es el mejor horario para una breve llamada de 15 minutos? Nos encantaría entender mejor tus necesidades.")
+
+        tone_opener = {
+            "professional": f"Estimado/a {lead.business_name},",
+            "friendly": f"Hola {lead.business_name},",
+            "assertive": f"Hola {lead.business_name},",
+            "consultative": f"Hola {lead.business_name},",
+        }.get(tone, f"Hola {lead.business_name},")
+
+        tone_body = {
+            "professional": "Gracias por tu mensaje. Hemos recibido tu email y queremos asegurarnos de darte la mejor respuesta posible.",
+            "friendly": "¡Gracias por escribirnos! Recibimos tu email y queremos responderte lo mejor posible.",
+            "assertive": "Gracias por tu email. Queremos avanzar rápido y darte la información que necesitas.",
+            "consultative": "Gracias por tu mensaje. Me gustaría entender mejor tu situación para poder orientarte de la mejor manera.",
+        }.get(tone, "Gracias por tu mensaje. Hemos recibido tu email y queremos asegurarnos de darte la mejor respuesta posible.")
+
+        custom = f"\n{custom_instructions}\n" if custom_instructions else ""
+
+        body_parts = [tone_opener, "", tone_body, custom, length_text, "", "Saludos,", "Equipo Eko AI"]
+        body = "\n".join(p for p in body_parts if p)
+
         return {
             "subject": f"Re: {inbound_email.subject or ''}",
-            "body": f"""Hola {lead.business_name},
-
-Gracias por tu mensaje. Hemos recibido tu email y queremos asegurarnos de darte la mejor respuesta posible.
-
-{custom_instructions or ''}
-
-¿Podrías confirmarnos cuál es el mejor horario para una breve llamada de 15 minutos? Nos encantaría entender mejor tus necesidades.
-
-Saludos,
-Equipo Eko AI
-""",
+            "body": body,
             "tone": tone,
             "confidence": 0.5,
             "suggested_next_action": "Programar llamada de seguimiento",

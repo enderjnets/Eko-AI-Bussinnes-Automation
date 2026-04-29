@@ -40,18 +40,32 @@ else:
     CHAT_MODEL = settings.OPENAI_MODEL
     EMBEDDING_MODEL = settings.OPENAI_EMBEDDING_MODEL
 
-# Initialize fallback client (Kimi) if available and different from primary
+# Initialize fallback client — use a different provider than primary
 _fallback_client = None
 _fallback_model = None
-if settings.KIMI_API_KEY and settings.AI_PROVIDER != "kimi":
-    _fallback_client = openai.AsyncOpenAI(
-        api_key=settings.KIMI_API_KEY,
-        base_url=settings.KIMI_BASE_URL,
-        default_headers={
-            "User-Agent": "claude-code/2.1.50",
-        },
-    )
-    _fallback_model = settings.KIMI_MODEL
+_fallback_provider = None
+
+if settings.AI_PROVIDER == "kimi":
+    # Primary is Kimi → fallback to OpenAI if available
+    if settings.OPENAI_API_KEY:
+        _fallback_client = openai.AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
+        )
+        _fallback_model = settings.OPENAI_MODEL
+        _fallback_provider = "openai"
+elif settings.AI_PROVIDER in ("openai", "minimax", "ollama"):
+    # Primary is OpenAI/Minimax/Ollama → fallback to Kimi if available
+    if settings.KIMI_API_KEY:
+        _fallback_client = openai.AsyncOpenAI(
+            api_key=settings.KIMI_API_KEY,
+            base_url=settings.KIMI_BASE_URL,
+            default_headers={
+                "User-Agent": "claude-code/2.1.50",
+            },
+        )
+        _fallback_model = settings.KIMI_MODEL
+        _fallback_provider = "kimi"
 
 
 def _clean_content(content: str, provider: str) -> str:
@@ -130,7 +144,7 @@ async def generate_completion(
         if _fallback_client and _fallback_model:
             try:
                 return await _try_completion(
-                    _fallback_client, _fallback_model, messages, temperature, max_tokens, json_mode, "kimi"
+                    _fallback_client, _fallback_model, messages, temperature, max_tokens, json_mode, _fallback_provider or "openai"
                 )
             except Exception as fallback_err:
                 raise RuntimeError(
