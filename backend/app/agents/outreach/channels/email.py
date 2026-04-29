@@ -173,9 +173,13 @@ Return ONLY a JSON object with:
         ai_generated: bool = True,
         tags: Optional[list] = None,
         campaign_id: Optional[int] = None,
+        attachments: Optional[list] = None,
     ) -> dict:
         """
         Send an email via Resend with tracking pixel embedded.
+        
+        Args:
+            attachments: List of dicts with {filename, content_base64}
         
         Returns:
             Resend API response with message_id
@@ -202,6 +206,10 @@ Return ONLY a JSON object with:
                 "html": tracking_body,
                 "tags": email_tags,
             }
+            
+            # Add attachments if provided
+            if attachments:
+                params["attachments"] = attachments
             
             response = resend.Emails.send(params)
             message_id = response.get("id")

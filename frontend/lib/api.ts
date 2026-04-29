@@ -122,6 +122,16 @@ export const emailsApi = {
     api.delete(`/emails/${interactionId}`),
   bulkDelete: (ids: number[]) =>
     api.delete("/emails/bulk/delete", { data: { ids } }),
+  forward: (interactionId: number, data: { to_email: string; note?: string }) =>
+    api.post(`/emails/${interactionId}/forward`, data),
+  createDraft: (data: { lead_id: number; subject: string; body: string }) =>
+    api.post("/emails/drafts", data),
+  updateDraft: (draftId: number, data: { subject?: string; body?: string }) =>
+    api.patch(`/emails/drafts/${draftId}`, data),
+  sendDraft: (draftId: number) =>
+    api.post(`/emails/drafts/${draftId}/send`),
+  deleteDraft: (draftId: number) =>
+    api.delete(`/emails/drafts/${draftId}`),
 };
 
 // Sequences API

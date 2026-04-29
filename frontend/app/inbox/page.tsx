@@ -67,7 +67,7 @@ export default function InboxPage() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread" | "high_priority">("all");
-  const [folder, setFolder] = useState<"inbox" | "sent" | "all">("inbox");
+  const [folder, setFolder] = useState<"inbox" | "sent" | "all" | "drafts">("inbox");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [markingRead, setMarkingRead] = useState<number | null>(null);
   const [simulating, setSimulating] = useState(false);
@@ -96,6 +96,18 @@ export default function InboxPage() {
   const [quickReplyBody, setQuickReplyBody] = useState("");
   const [sendingQuickReply, setSendingQuickReply] = useState(false);
   const [quickReplyError, setQuickReplyError] = useState("");
+  const [quickReplyAttachments, setQuickReplyAttachments] = useState<File[]>([]);
+
+  // Forward state
+  const [showForward, setShowForward] = useState(false);
+  const [forwardEmail, setForwardEmail] = useState("");
+  const [forwardNote, setForwardNote] = useState("");
+  const [sendingForward, setSendingForward] = useState(false);
+  const [forwardError, setForwardError] = useState("");
+
+  // Draft state
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftError, setDraftError] = useState("");
 
   const loadInbox = useCallback(async () => {
     setLoading(true);
@@ -104,6 +116,7 @@ export default function InboxPage() {
       if (filter === "unread") params.status = "unread";
       if (folder === "inbox") params.direction = "inbound";
       else if (folder === "sent") params.direction = "outbound";
+      else if (folder === "drafts") params.direction = "draft";
       // folder === "all" → no direction filter
       const res = await emailsApi.inbox(params);
       let data = res.data?.items || [];
@@ -238,6 +251,7 @@ export default function InboxPage() {
       });
       setQuickReplySubject("");
       setQuickReplyBody("");
+      setQuickReplyAttachments([]);
       // Refresh conversation
       const res = await emailsApi.conversation(item.id);
       setConversation(res.data?.items || []);
@@ -246,6 +260,48 @@ export default function InboxPage() {
       setQuickReplyError(err.response?.data?.detail || "Error enviando respuesta");
     } finally {
       setSendingQuickReply(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!quickReplySubject.trim() || !quickReplyBody.trim()) return;
+    if (!replyTarget) return;
+    setSavingDraft(true);
+    setDraftError("");
+    try {
+      await emailsApi.createDraft({
+        lead_id: replyTarget.lead_id,
+        subject: quickReplySubject,
+        body: quickReplyBody,
+      });
+      setQuickReplySubject("");
+      setQuickReplyBody("");
+      setQuickReplyAttachments([]);
+      loadInbox();
+    } catch (err: any) {
+      setDraftError(err.response?.data?.detail || "Error guardando borrador");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleForward = async (item: InboxItem) => {
+    if (!forwardEmail.trim()) return;
+    setSendingForward(true);
+    setForwardError("");
+    try {
+      await emailsApi.forward(item.id, {
+        to_email: forwardEmail,
+        note: forwardNote,
+      });
+      setForwardEmail("");
+      setForwardNote("");
+      setShowForward(false);
+      loadInbox();
+    } catch (err: any) {
+      setForwardError(err.response?.data?.detail || "Error reenviando email");
+    } finally {
+      setSendingForward(false);
     }
   };
 
@@ -397,7 +453,7 @@ export default function InboxPage() {
 
         {/* Folder tabs */}
         <div className="flex items-center gap-1 bg-white/5 rounded-lg p-1 mb-4 w-fit">
-          {(["inbox", "sent", "all"] as const).map((f) => (
+          {(["inbox", "sent", "drafts", "all"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFolder(f)}
@@ -407,7 +463,7 @@ export default function InboxPage() {
                   : "text-gray-400 hover:text-white"
               }`}
             >
-              {f === "inbox" ? "Recibidos" : f === "sent" ? "Enviados" : "Todos"}
+              {f === "inbox" ? "Recibidos" : f === "sent" ? "Enviados" : f === "drafts" ? "Borradores" : "Todos"}
             </button>
           ))}
         </div>
@@ -437,13 +493,21 @@ export default function InboxPage() {
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-gray-500">
             <MailOpen className="w-12 h-12 mb-4 opacity-50" />
-            <p className="text-lg font-medium">Inbox vacío</p>
+            <p className="text-lg font-medium">
+              {folder === "drafts" ? "Sin borradores" : "Inbox vacío"}
+            </p>
             <p className="text-sm mt-1">
               {filter === "unread"
                 ? "No hay mensajes sin leer"
                 : filter === "high_priority"
                 ? "No hay mensajes de alta prioridad"
-                : "Los replies de leads aparecerán aquí"}
+                : folder === "sent"
+                ? "No hay emails enviados"
+                : folder === "drafts"
+                ? "No tienes borradores guardados"
+                : folder === "all"
+                ? "No hay emails"
+                : "Los emails aparecerán aquí"}
             </p>
           </div>
         ) : (
@@ -644,6 +708,52 @@ export default function InboxPage() {
                         )}
                       </div>
 
+                      {/* Forward section */}
+                      {showForward && item.direction === "inbound" && (
+                        <div className="mb-4 rounded-lg bg-white/[0.03] border border-white/10 p-3">
+                          <p className="text-xs text-gray-500 font-medium mb-2">Reenviar email</p>
+                          {forwardError && (
+                            <div className="p-2 mb-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs">
+                              {forwardError}
+                            </div>
+                          )}
+                          <input
+                            type="email"
+                            placeholder="Email destino"
+                            value={forwardEmail}
+                            onChange={(e) => setForwardEmail(e.target.value)}
+                            className="w-full px-3 py-2 mb-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:ring-2 focus:ring-eko-blue placeholder-gray-600"
+                          />
+                          <textarea
+                            placeholder="Nota opcional..."
+                            value={forwardNote}
+                            onChange={(e) => setForwardNote(e.target.value)}
+                            rows={2}
+                            className="w-full px-3 py-2 mb-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:ring-2 focus:ring-eko-blue resize-none placeholder-gray-600"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleForward(item)}
+                              disabled={sendingForward || !forwardEmail.trim()}
+                              className="flex items-center gap-2 px-4 py-2 bg-eko-blue text-white rounded-lg hover:bg-eko-blue/80 transition-colors disabled:opacity-50 text-sm"
+                            >
+                              {sendingForward ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
+                              Reenviar
+                            </button>
+                            <button
+                              onClick={() => { setShowForward(false); setForwardEmail(""); setForwardNote(""); }}
+                              className="px-4 py-2 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5 transition-colors text-sm"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Quick Manual Reply */}
                       {item.direction === "inbound" && (
                         <div className="mb-4 rounded-lg bg-white/[0.03] border border-white/10 p-3">
@@ -651,6 +761,11 @@ export default function InboxPage() {
                           {quickReplyError && (
                             <div className="p-2 mb-2 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-xs">
                               {quickReplyError}
+                            </div>
+                          )}
+                          {draftError && (
+                            <div className="p-2 mb-2 bg-yellow-500/10 border border-yellow-500/20 rounded text-yellow-400 text-xs">
+                              {draftError}
                             </div>
                           )}
                           <input
@@ -667,31 +782,94 @@ export default function InboxPage() {
                             rows={3}
                             className="w-full px-3 py-2 mb-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white focus:ring-2 focus:ring-eko-blue resize-none placeholder-gray-600"
                           />
-                          <button
-                            onClick={() => handleQuickReply(item)}
-                            disabled={sendingQuickReply || !quickReplySubject.trim() || !quickReplyBody.trim()}
-                            className="flex items-center gap-2 px-4 py-2 bg-eko-blue text-white rounded-lg hover:bg-eko-blue/80 transition-colors disabled:opacity-50 text-sm"
-                          >
-                            {sendingQuickReply ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Send className="w-4 h-4" />
+                          {/* File attachment input */}
+                          <div className="mb-2">
+                            <label className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 border-dashed rounded-lg text-sm text-gray-400 hover:bg-white/[0.07] hover:text-gray-300 transition-colors cursor-pointer">
+                              <Edit3 className="w-4 h-4" />
+                              {quickReplyAttachments.length > 0
+                                ? `${quickReplyAttachments.length} archivo(s) seleccionado(s)`
+                                : "Adjuntar archivo"}
+                              <input
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  if (files.length > 0) {
+                                    setQuickReplyAttachments((prev) => [...prev, ...files]);
+                                  }
+                                }}
+                              />
+                            </label>
+                            {quickReplyAttachments.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {quickReplyAttachments.map((file, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/5 rounded text-xs text-gray-400"
+                                  >
+                                    {file.name}
+                                    <button
+                                      onClick={() =>
+                                        setQuickReplyAttachments((prev) => prev.filter((_, i) => i !== idx))
+                                      }
+                                      className="text-gray-500 hover:text-red-400"
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
                             )}
-                            Enviar respuesta
-                          </button>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                              onClick={() => handleQuickReply(item)}
+                              disabled={sendingQuickReply || !quickReplySubject.trim() || !quickReplyBody.trim()}
+                              className="flex items-center gap-2 px-4 py-2 bg-eko-blue text-white rounded-lg hover:bg-eko-blue/80 transition-colors disabled:opacity-50 text-sm"
+                            >
+                              {sendingQuickReply ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
+                              Enviar respuesta
+                            </button>
+                            <button
+                              onClick={handleSaveDraft}
+                              disabled={savingDraft || !quickReplySubject.trim() || !quickReplyBody.trim()}
+                              className="flex items-center gap-2 px-4 py-2 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50 text-sm"
+                            >
+                              {savingDraft ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Edit3 className="w-4 h-4" />
+                              )}
+                              Guardar borrador
+                            </button>
+                          </div>
                         </div>
                       )}
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-2">
                         {item.direction === "inbound" && (
-                          <button
-                            onClick={() => openReplyModal(item)}
-                            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
-                          >
-                            <Wand2 className="w-4 h-4" />
-                            Responder con IA
-                          </button>
+                          <>
+                            <button
+                              onClick={() => openReplyModal(item)}
+                              className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm"
+                            >
+                              <Wand2 className="w-4 h-4" />
+                              Responder con IA
+                            </button>
+                            <button
+                              onClick={() => { setShowForward(true); setReplyTarget(item); }}
+                              className="flex items-center gap-2 px-4 py-2 border border-white/10 text-gray-300 rounded-lg hover:bg-white/5 transition-colors text-sm"
+                            >
+                              <ArrowLeft className="w-4 h-4" />
+                              Reenviar
+                            </button>
+                          </>
                         )}
                         <button
                           onClick={() => handleDelete(item.id)}

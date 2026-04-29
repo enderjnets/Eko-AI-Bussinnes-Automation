@@ -104,6 +104,8 @@ async def get_inbox(
         query = query.where(Interaction.direction == "inbound")
     elif direction == "outbound":
         query = query.where(Interaction.direction == "outbound")
+    elif direction == "draft":
+        query = query.where(Interaction.email_status == "draft")
     # else "all" or None — no direction filter
     
     if lead_id:
@@ -125,6 +127,8 @@ async def get_inbox(
         count_query = count_query.where(Interaction.direction == "inbound")
     elif direction == "outbound":
         count_query = count_query.where(Interaction.direction == "outbound")
+    elif direction == "draft":
+        count_query = count_query.where(Interaction.email_status == "draft")
     
     count_result = await db.execute(count_query)
     total = len(count_result.scalars().all())
@@ -603,3 +607,234 @@ async def bulk_delete_emails(
     
     await db.commit()
     return {"status": "deleted", "count": deleted_count, "ids": data.ids}
+
+
+# ---------------------------------------------------------------------------
+# Forward
+# ---------------------------------------------------------------------------
+
+class ForwardRequest(BaseModel):
+    to_email: str
+    note: Optional[str] = ""
+
+
+@router.post("/{interaction_id}/forward")
+async def forward_email(
+    interaction_id: int,
+    data: ForwardRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Forward an inbound email to another recipient."""
+    result = await db.execute(
+        select(Interaction).where(Interaction.id == interaction_id)
+    )
+    interaction = result.scalar_one_or_none()
+    if not interaction:
+        raise HTTPException(status_code=404, detail="Email not found")
+    
+    # Build forwarded content
+    original = interaction.content or ""
+    forward_header = f"""<br><br>
+---------- Forwarded message ----------<br>
+From: {interaction.lead.business_name if interaction.lead else 'Unknown'}<br>
+Date: {interaction.created_at.strftime('%a, %b %d, %Y at %I:%M %p') if interaction.created_at else 'Unknown'}<br>
+Subject: {interaction.subject or '(no subject)'}<br>
+To: contact@biz.ekoaiautomation.com<br><br>
+"""
+    
+    note_prefix = f"<p>{data.note}</p><br>" if data.note else ""
+    forwarded_body = f"{note_prefix}{forward_header}{original}"
+    
+    # Send via Resend
+    email_outreach = EmailOutreach()
+    response = await email_outreach.send(
+        to_email=data.to_email,
+        subject=f"Fwd: {interaction.subject or ''}",
+        body=forwarded_body,
+        lead_id=interaction.lead_id,
+    )
+    message_id = response.get("id")
+    
+    # Create outbound interaction record
+    outbound = Interaction(
+        lead_id=interaction.lead_id,
+        interaction_type="email",
+        direction="outbound",
+        subject=f"Fwd: {interaction.subject or ''}",
+        content=forwarded_body,
+        email_message_id=message_id,
+        meta={
+            "forwarded_from": interaction_id,
+            "forwarded_to": data.to_email,
+            "original_subject": interaction.subject,
+            "sent_by_user": current_user.id,
+            "sent_at": datetime.utcnow().isoformat(),
+            "note": data.note,
+        },
+    )
+    db.add(outbound)
+    await db.commit()
+    await db.refresh(outbound)
+    
+    return {
+        "status": "forwarded",
+        "interaction_id": outbound.id,
+        "message_id": message_id,
+        "to_email": data.to_email,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Drafts
+# ---------------------------------------------------------------------------
+
+class DraftRequest(BaseModel):
+    lead_id: int
+    subject: str
+    body: str
+
+
+class UpdateDraftRequest(BaseModel):
+    subject: Optional[str] = None
+    body: Optional[str] = None
+
+
+@router.post("/drafts")
+async def create_draft(
+    data: DraftRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create or save a draft email."""
+    result = await db.execute(select(Lead).where(Lead.id == data.lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    draft = Interaction(
+        lead_id=lead.id,
+        interaction_type="email",
+        direction="outbound",
+        subject=data.subject,
+        content=data.body,
+        email_status="draft",
+        meta={
+            "draft": True,
+            "created_by": current_user.id,
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat(),
+        },
+    )
+    db.add(draft)
+    await db.commit()
+    await db.refresh(draft)
+    
+    return {
+        "status": "draft_saved",
+        "draft_id": draft.id,
+        "lead_id": lead.id,
+    }
+
+
+@router.patch("/drafts/{draft_id}")
+async def update_draft(
+    draft_id: int,
+    data: UpdateDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update an existing draft."""
+    result = await db.execute(
+        select(Interaction).where(Interaction.id == draft_id)
+    )
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.email_status != "draft":
+        raise HTTPException(status_code=400, detail="Not a draft")
+    
+    if data.subject is not None:
+        draft.subject = data.subject
+    if data.body is not None:
+        draft.content = data.body
+    
+    meta = draft.meta or {}
+    meta["updated_at"] = datetime.utcnow().isoformat()
+    draft.meta = meta
+    
+    await db.commit()
+    return {"status": "draft_updated", "draft_id": draft_id}
+
+
+@router.post("/drafts/{draft_id}/send")
+async def send_draft(
+    draft_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a saved draft email."""
+    result = await db.execute(
+        select(Interaction).where(Interaction.id == draft_id)
+    )
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.email_status != "draft":
+        raise HTTPException(status_code=400, detail="Not a draft")
+    
+    result = await db.execute(select(Lead).where(Lead.id == draft.lead_id))
+    lead = result.scalar_one_or_none()
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not lead.email:
+        raise HTTPException(status_code=400, detail="Lead has no email")
+    
+    # Send via Resend
+    email_outreach = EmailOutreach()
+    response = await email_outreach.send(
+        to_email=lead.email,
+        subject=draft.subject or "",
+        body=draft.content or "",
+        lead_id=lead.id,
+    )
+    message_id = response.get("id")
+    
+    # Update draft to sent
+    draft.email_status = "sent"
+    draft.email_message_id = message_id
+    meta = draft.meta or {}
+    meta["draft"] = False
+    meta["sent_at"] = datetime.utcnow().isoformat()
+    meta["sent_by_user"] = current_user.id
+    draft.meta = meta
+    
+    lead.last_contact_at = datetime.utcnow()
+    await db.commit()
+    
+    return {
+        "status": "sent",
+        "interaction_id": draft.id,
+        "message_id": message_id,
+    }
+
+
+@router.delete("/drafts/{draft_id}")
+async def delete_draft(
+    draft_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a draft."""
+    result = await db.execute(
+        select(Interaction).where(Interaction.id == draft_id)
+    )
+    draft = result.scalar_one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.email_status != "draft":
+        raise HTTPException(status_code=400, detail="Not a draft")
+    
+    await db.delete(draft)
+    await db.commit()
+    return {"status": "deleted", "draft_id": draft_id}
