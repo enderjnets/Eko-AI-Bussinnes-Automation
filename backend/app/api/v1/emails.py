@@ -68,7 +68,22 @@ async def generate_and_send_email(
         lead=lead,
         campaign_context=campaign_context,
     )
-    
+
+    # Record interaction so the email appears in the conversation thread
+    from app.models.lead import Interaction
+    interaction = Interaction(
+        lead_id=lead.id,
+        interaction_type="email",
+        direction="outbound",
+        subject=response.get("subject", ""),
+        content=response.get("body", ""),
+        email_status="sent",
+        email_message_id=response.get("id"),
+        meta={"ai_generated": True, "campaign_context": campaign_context},
+    )
+    db.add(interaction)
+    await db.commit()
+
     return {"status": "sent", "message_id": response.get("id")}
 
 

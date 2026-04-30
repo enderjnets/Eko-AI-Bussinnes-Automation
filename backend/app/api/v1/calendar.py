@@ -295,7 +295,7 @@ async def send_booking_link(
         interaction_type="email",
         direction="outbound",
         subject=subject,
-        content="Booking link sent",
+        content=response.get("body", booking_link or ""),
         email_status="sent",
         email_message_id=response.get("id"),
         meta={"booking_link": booking_link, "event_type_id": data.event_type_id},

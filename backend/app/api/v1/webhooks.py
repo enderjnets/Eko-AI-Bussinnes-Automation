@@ -64,17 +64,9 @@ async def resend_webhook(request: Request, db: AsyncSession = Depends(get_db)):
                 if lead.status.value == "contacted":
                     lead.status = "engaged"
             
-            # Record interaction
-            interaction = Interaction(
-                lead_id=lead.id,
-                interaction_type="email",
-                direction="inbound" if event_type in ["email.opened", "email.clicked"] else "outbound",
-                email_status=event_type.replace("email.", ""),
-                email_message_id=message_id,
-                meta=payload,
-            )
-            db.add(interaction)
-            await db.commit()
+            # Do NOT create Interaction records for tracking events
+            # (opened, clicked, sent, delivered) — they are not conversation messages
+            # and pollute the thread with empty bubbles.
     
     return {"status": "ok"}
 

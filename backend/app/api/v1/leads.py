@@ -632,7 +632,7 @@ async def bulk_contact_leads(
                 interaction_type="email",
                 direction="outbound",
                 subject=response.get("subject", custom_subject or ""),
-                content=f"Bulk contact sent via template: {template}",
+                content=response.get("body", custom_body or ""),
                 email_status="sent",
                 email_message_id=response.get("id"),
                 meta={

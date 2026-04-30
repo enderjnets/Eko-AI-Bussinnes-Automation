@@ -181,7 +181,7 @@ async def contact_lead(
             lead_id=lead.id,
             interaction_type="email",
             direction="outbound",
-            content=custom_body or f"Email sent via {template or 'initial_outreach'}",
+            content=response.get("body", custom_body or ""),
             meta={
                 "channel": channel,
                 "template": template,

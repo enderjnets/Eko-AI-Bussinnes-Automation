@@ -157,7 +157,7 @@ async def launch_campaign(
                 interaction_type="email",
                 direction="outbound",
                 subject=response.get("subject", ""),
-                content=f"Campaign email sent via {campaign.name}",
+                content=response.get("body", ""),
                 email_status="sent",
                 email_message_id=response.get("id"),
                 meta={

@@ -92,7 +92,7 @@ async def _process_follow_ups_async():
                     interaction_type="email",
                     direction="outbound",
                     subject=response.get("subject", "Follow-up"),
-                    content=f"Auto follow-up #{follow_up_count + 1} sent",
+                    content=response.get("body", ""),
                     email_status="sent",
                     email_message_id=response.get("id"),
                     meta={
@@ -231,7 +231,7 @@ async def _execute_sequences_async():
                             interaction_type="email",
                             direction="outbound",
                             subject=response.get("subject", ""),
-                            content=f"Sequence '{seq.name}' step: {current_step.name}",
+                            content=response.get("body", body or ""),
                             email_status="sent",
                             email_message_id=response.get("id"),
                             meta={
