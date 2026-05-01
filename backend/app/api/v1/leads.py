@@ -7,7 +7,7 @@ from sqlalchemy import select, func, Integer, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import get_db
-from app.models.lead import Lead, LeadStatus, Interaction
+from app.models.lead import Lead, LeadStatus, LeadSource, Interaction
 from app.models.user import User
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, LeadListResponse, DiscoveryRequest, LeadSearchRequest, PublicLeadCreate
 from app.agents.discovery.agent import DiscoveryAgent
