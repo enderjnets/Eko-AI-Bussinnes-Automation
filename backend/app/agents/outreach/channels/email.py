@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from typing import Optional
 
 import resend
@@ -274,6 +275,15 @@ Return ONLY a JSON object with:
                 )
             except Exception:
                 pass
+            
+            # In development, log the email instead of failing
+            if settings.is_development:
+                mock_id = f"mock-{lead_id}-{datetime.utcnow().timestamp()}"
+                logger.info(f"[DEV MOCK] Email to {to_email} | Subject: {subject} | Mock ID: {mock_id}")
+                # Log first 500 chars of body for debugging
+                body_preview = body[:500].replace("\n", " ")
+                logger.info(f"[DEV MOCK] Body preview: {body_preview}...")
+                return {"id": mock_id, "status": "sent (dev mock)"}
             
             raise
     
