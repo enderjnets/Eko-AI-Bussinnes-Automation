@@ -1,6 +1,8 @@
 """Stripe webhook handler."""
 
+import json
 import logging
+from datetime import datetime
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -32,7 +34,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         # In dev, allow unverified payloads for testing
         try:
             event = stripe.Event.construct_from(
-                __import__("json").loads(payload), stripe.api_key
+                json.loads(payload), stripe.api_key
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -102,7 +104,7 @@ async def _handle_checkout_completed(session: dict, db: AsyncSession):
     else:
         payment.status = PaymentStatus.COMPLETED
         payment.stripe_payment_intent_id = session.get("payment_intent")
-        payment.completed_at = __import__("datetime").datetime.utcnow()
+        payment.completed_at = datetime.utcnow()
 
     # Update lead to ACTIVE
     result = await db.execute(select(Lead).where(Lead.id == lead_id))
@@ -116,7 +118,7 @@ async def _handle_checkout_completed(session: dict, db: AsyncSession):
             lead.source_data = {}
         lead.source_data["payment"] = {
             "plan": plan,
-            "paid_at": __import__("datetime").datetime.utcnow().isoformat(),
+            "paid_at": datetime.utcnow().isoformat(),
             "amount_cents": session.get("amount_total"),
             "session_id": session_id,
         }
@@ -132,7 +134,7 @@ async def _handle_checkout_completed(session: dict, db: AsyncSession):
             deal.actual_revenue = deal.value
             if deal.meta is None:
                 deal.meta = {}
-            deal.meta["paid_at"] = __import__("datetime").datetime.utcnow().isoformat()
+            deal.meta["paid_at"] = datetime.utcnow().isoformat()
             deal.meta["plan"] = plan
 
         # Send onboarding welcome email
@@ -172,7 +174,7 @@ async def _handle_refund(charge: dict, db: AsyncSession):
         payment.status = PaymentStatus.REFUNDED
         if payment.meta is None:
             payment.meta = {}
-        payment.meta["refunded_at"] = __import__("datetime").datetime.utcnow().isoformat()
+        payment.meta["refunded_at"] = datetime.utcnow().isoformat()
         payment.meta["refund_amount_cents"] = charge.get("amount_refunded", 0)
         await db.commit()
         logger.info(f"Payment {payment.id} marked refunded")
