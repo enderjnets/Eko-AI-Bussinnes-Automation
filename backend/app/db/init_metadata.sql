@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS object_metadata (
     CONSTRAINT uq_object_name_plural_workspace UNIQUE (name_plural, workspace_id)
 );
 
-CREATE INDEX IF NOT EXISTS ix_object_metadata_workspace_id ON object_metadata (workspace_id);
-CREATE INDEX IF NOT EXISTS ix_object_metadata_name_singular ON object_metadata (name_singular);
+-- Note: ix_object_metadata_workspace_id and ix_object_metadata_name_singular
+-- are defined in the SQLAlchemy model (ObjectMetadata.__table_args__)
+-- and created automatically by Base.metadata.create_all().
 
 CREATE TABLE IF NOT EXISTS field_metadata (
     id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -54,9 +55,7 @@ CREATE TABLE IF NOT EXISTS field_metadata (
     CONSTRAINT uq_field_name_object_workspace UNIQUE (object_metadata_id, name, workspace_id)
 );
 
-CREATE INDEX IF NOT EXISTS ix_field_metadata_object_id ON field_metadata (object_metadata_id);
-CREATE INDEX IF NOT EXISTS ix_field_metadata_workspace_id ON field_metadata (workspace_id);
-CREATE INDEX IF NOT EXISTS ix_field_metadata_type ON field_metadata (type);
+-- Note: field_metadata indexes are defined in the SQLAlchemy model
 
 CREATE TABLE IF NOT EXISTS dynamic_records (
     id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -70,10 +69,7 @@ CREATE TABLE IF NOT EXISTS dynamic_records (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS ix_dynamic_records_object_id ON dynamic_records (object_metadata_id);
-CREATE INDEX IF NOT EXISTS ix_dynamic_records_workspace_id ON dynamic_records (workspace_id);
-CREATE INDEX IF NOT EXISTS ix_dynamic_records_label ON dynamic_records (label);
-CREATE INDEX IF NOT EXISTS ix_dynamic_records_created_at ON dynamic_records (created_at);
+-- Note: dynamic_records indexes are defined in the SQLAlchemy model
 
 -- Views engine
 CREATE TABLE IF NOT EXISTS views (
@@ -95,8 +91,7 @@ CREATE TABLE IF NOT EXISTS views (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS ix_views_workspace_object ON views (workspace_id, object_metadata_id);
-CREATE INDEX IF NOT EXISTS ix_views_visibility ON views (visibility);
+-- Note: views indexes are defined in the SQLAlchemy model
 
 CREATE TABLE IF NOT EXISTS view_fields (
     id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid(),
