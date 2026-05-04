@@ -268,3 +268,106 @@ async def get_billing_info(lead_id: int, db: AsyncSession = Depends(get_db)):
         ],
         "subscription": subscription_info,
     }
+
+
+# ---------------------------------------------------------------------------
+# Stripe Product/Price Seed (admin only — run once per environment)
+# ---------------------------------------------------------------------------
+
+@router.post("/seed-stripe")
+async def seed_stripe_products():
+    """Create Eko AI Products and recurring Prices in Stripe. Idempotent — safe to run multiple times.
+    
+    Returns the Price IDs to save in your .env as STRIPE_PRICE_STARTER/GROWTH/ENTERPRISE.
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    plans = [
+        {
+            "key": "starter",
+            "name": "Eko AI Starter",
+            "description": "1 Agente IA personalizado, horario comercial, soporte por email.",
+            "monthly_cents": 19900,
+        },
+        {
+            "key": "growth",
+            "name": "Eko AI Growth",
+            "description": "2 Agentes IA, horario extendido, soporte prioritario, dashboard analytics.",
+            "monthly_cents": 29900,
+        },
+        {
+            "key": "enterprise",
+            "name": "Eko AI Enterprise",
+            "description": "Agentes IA ilimitados, 24/7, soporte dedicado, API access.",
+            "monthly_cents": 39900,
+        },
+    ]
+
+    results = []
+    for plan in plans:
+        try:
+            # Search existing product by name to avoid duplicates
+            existing_products = stripe.Product.search(
+                query=f'name:"{plan["name"]}"',
+                limit=1,
+            )
+
+            if existing_products.data:
+                product = existing_products.data[0]
+                logger.info(f"Product '{plan['name']}' already exists: {product.id}")
+            else:
+                product = stripe.Product.create(
+                    name=plan["name"],
+                    description=plan["description"],
+                    metadata={"plan_key": plan["key"], "source": "eko_ai_seed"},
+                )
+                logger.info(f"Created product '{plan['name']}': {product.id}")
+
+            # Search existing recurring price for this product
+            existing_prices = stripe.Price.list(
+                product=product.id,
+                type="recurring",
+                limit=1,
+            )
+
+            if existing_prices.data:
+                price = existing_prices.data[0]
+                logger.info(f"Price for '{plan['name']}' already exists: {price.id}")
+            else:
+                price = stripe.Price.create(
+                    product=product.id,
+                    unit_amount=plan["monthly_cents"],
+                    currency="usd",
+                    recurring={"interval": "month", "interval_count": 1},
+                    metadata={"plan_key": plan["key"], "source": "eko_ai_seed"},
+                )
+                logger.info(f"Created price for '{plan['name']}': {price.id}")
+
+            results.append({
+                "plan": plan["key"],
+                "product_id": product.id,
+                "price_id": price.id,
+                "amount_cents": plan["monthly_cents"],
+                "status": "ok",
+            })
+
+        except stripe.error.StripeError as e:
+            logger.error(f"Stripe error seeding {plan['key']}: {e}")
+            results.append({
+                "plan": plan["key"],
+                "error": str(e),
+                "status": "error",
+            })
+
+    # Build env snippet
+    env_snippet = "\n".join(
+        f"STRIPE_PRICE_{r['plan'].upper()}={r.get('price_id', '')}"
+        for r in results if r["status"] == "ok"
+    )
+
+    return {
+        "results": results,
+        "env_snippet": env_snippet,
+        "note": "Copy the env_snippet above into your .env file and restart the backend.",
+    }

@@ -1,3 +1,4 @@
+from typing import Optional
 from datetime import datetime
 from enum import Enum as PyEnum
 from sqlalchemy import String, Text, DateTime, Numeric, ForeignKey, Integer

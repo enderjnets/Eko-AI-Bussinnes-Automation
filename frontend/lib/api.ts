@@ -15,11 +15,15 @@ export const api = axios.create({
   },
 });
 
-// Add auth token to every request
+// Add auth token and workspace header to every request
 api.interceptors.request.use((config) => {
   const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const workspaceId = typeof window !== "undefined" ? localStorage.getItem("workspace_id") : null;
+  if (workspaceId) {
+    config.headers["X-Workspace-ID"] = workspaceId;
   }
   return config;
 });
