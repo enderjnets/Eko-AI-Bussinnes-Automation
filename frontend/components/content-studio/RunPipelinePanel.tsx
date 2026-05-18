@@ -526,6 +526,21 @@ export default function RunPipelinePanel() {
   );
 }
 
+const LANGUAGES: { code: string; label: string; flag: string }[] = [
+  { code: "es", label: "Español", flag: "🇪🇸" },
+  { code: "en", label: "English", flag: "🇺🇸" },
+  { code: "pt", label: "Português", flag: "🇧🇷" },
+  { code: "fr", label: "Français", flag: "🇫🇷" },
+  { code: "de", label: "Deutsch", flag: "🇩🇪" },
+  { code: "it", label: "Italiano", flag: "🇮🇹" },
+  { code: "ja", label: "日本語", flag: "🇯🇵" },
+  { code: "ko", label: "한국어", flag: "🇰🇷" },
+  { code: "zh", label: "中文", flag: "🇨🇳" },
+  { code: "ar", label: "العربية", flag: "🇸🇦" },
+  { code: "ru", label: "Русский", flag: "🇷🇺" },
+  { code: "hi", label: "हिन्दी", flag: "🇮🇳" },
+];
+
 function NewBriefModal({
   templates,
   onClose,
@@ -538,6 +553,7 @@ function NewBriefModal({
   const [form, setForm] = useState({
     business_name: "",
     industry: "restaurant",
+    language: "es",
     city: "",
     address: "",
     description: "",
@@ -599,6 +615,7 @@ function NewBriefModal({
         ...f,
         business_name: data.business_name || f.business_name,
         industry: data.industry || f.industry,
+        language: data.language || f.language,
         city: data.city || f.city,
         address: data.address || f.address,
         description: data.description || f.description,
@@ -741,8 +758,8 @@ function NewBriefModal({
             )}
           </div>
 
-          {/* Row: name + industry */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Row: name + industry + language */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="text-[11px] text-gray-500 mb-1 block">Nombre del negocio *</label>
               <input
@@ -761,6 +778,23 @@ function NewBriefModal({
               >
                 {Object.entries(templates).map(([k, v]) => (
                   <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] text-gray-500 mb-1 block flex items-center gap-1">
+                Idioma de la publicidad
+              </label>
+              <select
+                value={form.language}
+                onChange={(e) => set("language", e.target.value)}
+                className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-pink-400/50"
+                title="Idioma en que se generarán los videos, guiones y captions"
+              >
+                {LANGUAGES.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.flag} {l.label}
+                  </option>
                 ))}
               </select>
             </div>
