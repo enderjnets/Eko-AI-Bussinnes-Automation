@@ -19,6 +19,8 @@ import {
   Plus,
   Trash2,
   X,
+  Sparkles,
+  Globe,
 } from "lucide-react";
 
 interface Brief {
@@ -553,9 +555,77 @@ function NewBriefModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState("");
+  const [extractProgress, setExtractProgress] = useState(0);
+  const [extractStep, setExtractStep] = useState("");
+
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const splitLines = (s: string) => s.split("\n").map((l) => l.trim()).filter(Boolean);
+  const joinLines = (arr: any) => Array.isArray(arr) ? arr.join("\n") : (arr || "");
+
+  const handleExtract = async () => {
+    const url = websiteUrl.trim();
+    if (!url) {
+      setExtractError("Ingresa una URL primero.");
+      return;
+    }
+    setExtractError("");
+    setExtracting(true);
+    setExtractProgress(5);
+    setExtractStep("Descargando página web...");
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    timers.push(setTimeout(() => { setExtractProgress(30); setExtractStep("Analizando contenido con IA..."); }, 2000));
+    timers.push(setTimeout(() => { setExtractProgress(60); setExtractStep("Extrayendo datos del negocio..."); }, 7000));
+    timers.push(setTimeout(() => { setExtractProgress(85); }, 14000));
+
+    try {
+      const res = await fetch(`${PIPELINE_API_URL}/briefs/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.detail) {
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      timers.forEach(clearTimeout);
+      setExtractProgress(100);
+      setExtractStep("Llenando campos...");
+      setForm((f) => ({
+        ...f,
+        business_name: data.business_name || f.business_name,
+        industry: data.industry || f.industry,
+        city: data.city || f.city,
+        address: data.address || f.address,
+        description: data.description || f.description,
+        products: joinLines(data.products) || f.products,
+        unique_selling_points: joinLines(data.unique_selling_points) || f.unique_selling_points,
+        target_audience: data.target_audience || f.target_audience,
+        brand_tone: data.brand_tone || f.brand_tone,
+        special_offers: joinLines(data.special_offers) || f.special_offers,
+        price_range: data.price_range || f.price_range,
+        hashtags: joinLines(data.hashtags) || f.hashtags,
+        origin_story: data.origin_story || f.origin_story,
+        surprising_fact: data.surprising_fact || f.surprising_fact,
+        key_benefit: data.key_benefit || f.key_benefit,
+      }));
+      setTimeout(() => {
+        setExtracting(false);
+        setExtractProgress(0);
+        setExtractStep("");
+      }, 800);
+    } catch (e: any) {
+      timers.forEach(clearTimeout);
+      setExtractError(e.message || "Error al extraer información");
+      setExtracting(false);
+      setExtractProgress(0);
+      setExtractStep("");
+    }
+  };
 
   const handleSubmit = async () => {
     if (!form.business_name.trim() || !form.city.trim()) {
@@ -601,6 +671,76 @@ function NewBriefModal({
         </div>
 
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
+          {/* AI Extract from URL */}
+          <div className="rounded-lg border border-pink-500/20 bg-gradient-to-br from-pink-500/[0.04] to-purple-500/[0.04] p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+              <label className="text-[11px] font-medium text-pink-300">
+                Auto-llenar desde página web
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1 relative">
+                <Globe className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="url"
+                  value={websiteUrl}
+                  onChange={(e) => setWebsiteUrl(e.target.value)}
+                  disabled={extracting}
+                  placeholder="https://www.tunegocio.com"
+                  className="w-full rounded-lg bg-white/5 border border-white/10 pl-8 pr-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-pink-400/50 disabled:opacity-50"
+                  onKeyDown={(e) => { if (e.key === "Enter" && !extracting) { e.preventDefault(); handleExtract(); } }}
+                />
+              </div>
+              <button
+                onClick={handleExtract}
+                disabled={extracting || !websiteUrl.trim()}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 border border-pink-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {extracting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Procesar con IA
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Progress bar */}
+            {extracting && (
+              <div className="mt-3">
+                <div className="rounded-full bg-white/5 h-1.5 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-pink-400 to-purple-400 transition-all duration-700 ease-out"
+                    style={{ width: `${extractProgress}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5 flex items-center gap-1.5">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  {extractStep}
+                </p>
+              </div>
+            )}
+
+            {!extracting && !extractError && (
+              <p className="text-[10px] text-gray-500 mt-2">
+                La IA descargará la página y llenará todos los campos automáticamente. Después puedes editar lo que necesites.
+              </p>
+            )}
+
+            {extractError && (
+              <p className="text-[10px] text-red-400 mt-2 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" />
+                {extractError}
+              </p>
+            )}
+          </div>
+
           {/* Row: name + industry */}
           <div className="grid grid-cols-2 gap-3">
             <div>
