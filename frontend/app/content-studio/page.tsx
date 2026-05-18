@@ -8,6 +8,7 @@ import PostsList from "@/components/content-studio/PostsList";
 import PostCalendar from "@/components/content-studio/PostCalendar";
 import AnalyticsDashboard from "@/components/content-studio/AnalyticsDashboard";
 import RunPipelinePanel from "@/components/content-studio/RunPipelinePanel";
+import VideosList from "@/components/content-studio/VideosList";
 import {
   Play,
   Activity,
@@ -15,10 +16,12 @@ import {
   Clapperboard,
   FileText,
   Calendar,
+  Video,
 } from "lucide-react";
 
 const TABS = [
   { id: "control", label: "Control", icon: Play },
+  { id: "videos", label: "Videos", icon: Video },
   { id: "posts", label: "Publicaciones", icon: FileText },
   { id: "calendar", label: "Calendario", icon: Calendar },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
@@ -70,6 +73,7 @@ export default function ContentStudioPage() {
         {/* Content */}
         <div className="min-h-[400px]">
           {activeTab === "control" && <ControlTab />}
+          {activeTab === "videos" && <VideosTab />}
           {activeTab === "posts" && <PostsTab />}
           {activeTab === "calendar" && <CalendarTab />}
           {activeTab === "analytics" && <AnalyticsTab />}
@@ -82,6 +86,14 @@ export default function ContentStudioPage() {
 
 function ControlTab() {
   return <RunPipelinePanel />;
+}
+
+function VideosTab() {
+  return (
+    <div className="space-y-4">
+      <VideosList />
+    </div>
+  );
 }
 
 function PostsTab() {
