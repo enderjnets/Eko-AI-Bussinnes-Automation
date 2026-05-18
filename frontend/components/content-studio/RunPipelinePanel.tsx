@@ -217,6 +217,7 @@ export default function RunPipelinePanel() {
   };
 
   return (
+    <>
     <div className="space-y-6">
       {/* API Health */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
@@ -508,7 +509,6 @@ export default function RunPipelinePanel() {
       </div>
     </div>
 
-    {/* New Brief Modal */}
     {showNewBrief && (
       <NewBriefModal
         templates={templates}
@@ -520,7 +520,7 @@ export default function RunPipelinePanel() {
         }}
       />
     )}
-  </div>
+  </>
   );
 }
 
