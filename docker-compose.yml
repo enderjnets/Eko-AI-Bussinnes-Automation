@@ -297,6 +297,7 @@ services:
       - ~/EkoContentStudio/produce_content.py:/app/scripts/produce_content.py
       - ~/EkoContentStudio/buffer_publisher.py:/app/buffer_publisher.py
       - ~/EkoContentStudio/publish_pipeline.py:/app/publish_pipeline.py
+      - ~/EkoContentStudio/pipeline_api.py:/app/pipeline_api.py
     environment:
       - BUFFER_API_KEY=${BUFFER_API_KEY:-au7VyBXcqYkOpftcaLuE7awhoSHBoXEAM-WPJWh06Fv}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-sk_448865ab97d9012f53c3ddf4edfdfd49d5ff796cff05f24f}
