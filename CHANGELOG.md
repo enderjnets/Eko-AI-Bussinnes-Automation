@@ -1,5 +1,75 @@
 
 
+## [0.7.8] — 2026-05-18
+
+### Landing Pages — Celery Worker FK Fix + Generator E2E Verified
+
+Causa raíz: el worker de Celery (`backend/app/tasks/scheduled.py`) NO importaba el modelo `LandingPage`. Cuando un lead se creaba desde una landing page, el FK `leads.landing_page_id → landing_pages.id` no podía resolverse en el registro de SQLAlchemy del worker, abortando con:
+
+```
+Foreign key associated with column 'leads.landing_page_id' could not find
+table 'landing_pages' with which to generate a foreign key to target column 'id'
+```
+
+**Consecuencia silenciosa**: el lead se creaba correctamente vía `/api/v1/leads/public`, se auto-enrollaba en la nurture sequence, PERO el task `enrich_and_welcome_lead` crasheaba — sin enrichment, sin score, **sin email de AI Analysis al cliente**. Los leads que vienen sin landing_page_id (manual, scraped, etc.) funcionaban sin problema porque no tocaban ese FK.
+
+#### CRITICAL fix
+
+- `backend/app/tasks/scheduled.py`: agregados imports `LandingPage` y `LandingPageVisit` (mismo patrón que `Payment` ya tenía con comentario "needed for Lead mapper resolution")
+
+#### Verificación E2E (live ROG)
+
+Generación con Kimi-for-coding (1 LLM call ~40s) — 4 niches en paralelo:
+
+| LP | Niche | HTML | Keys | Status |
+|---|---|---|---|---|
+| 9 | Restaurante Miami | 16.0 KB | 56/56 | ✓ |
+| 10 | Clínica Dental LA | 16.2 KB | 56/56 | ✓ |
+| 11 | Gym Boutique | 16.0 KB | 56/56 | ✓ |
+| 12 | Spa Beverly Hills | 16.2 KB | 56/56 | ✓ |
+
+Cada niche tiene copy ÚNICO y contextual:
+
+- **Clínica**: "Insurance Verification", "Automated Recalls", testimonial "Spanish-speaking patients love booking via WhatsApp"
+- **Gym**: "Churn Prediction", "Milestone Celebrations", testimonial "100th class automatically congratulated"
+- **Spa**: "Brand-Voice Booking", "Gift Card Sales 24/7", testimonial "International guests love multilingual support"
+
+#### Pipeline submit→email verificado
+
+Submit en LP 9 (Restaurante) y LP 12 (Spa) con form-encoded body:
+
+```
+Lead 612 (Fix Verifier, LP 9):
+  - Form submit:         POST /api/v1/leads/public → 201 created
+  - Celery enrichment:   started → score 78.5 → status SCORED
+  - AI Analysis email:   "Your AI automation analysis for Fix Verifier" sent
+  - Nurture sequence:    advanced to 2026-05-21
+
+Lead 613 (Sofia Beverly, LP 12):
+  - Form submit:         POST /api/v1/leads/public → 201 created
+  - Celery enrichment:   started → score 80.0 → status SCORED
+  - AI Analysis email:   "Your AI automation analysis for Sofia Beverly" sent
+  - Landing page visit:  recorded in landing_page_visits
+```
+
+#### Form schema (verificado en los 4 niches)
+
+```html
+<form class="hero-form" action="/api/v1/leads/public?landing_page_id={LP_ID}" method="POST">
+  <input type="text"  name="first_name" placeholder="First Name" required>
+  <input type="text"  name="last_name"  placeholder="Last Name"  required>
+  <input type="email" name="email"      placeholder="Email"      required>
+  <input type="tel"   name="phone"      placeholder="Phone"      required>
+  <input type="url"   name="website"    placeholder="Website"    required>
+  <button type="submit">Get Your Free AI Analysis</button>
+</form>
+```
+
+#### Memoria
+
+Nueva memoria `feedback_celery_model_imports.md`: cualquier modelo cuyas FKs apunten a tablas de modelos NO importados en `scheduled.py` causarán el mismo bug silencioso. Patrón a copiar: `from app.models.X import X  # noqa: F401 - needed for Y.x_id FK resolution`.
+
+
 ## [0.7.7] — 2026-05-18
 
 ### Landing Pages — Route Ordering Fix + Compare Enrichment

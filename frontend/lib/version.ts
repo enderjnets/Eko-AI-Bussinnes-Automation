@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "0.7.7";
+export const CURRENT_VERSION = "0.7.8";
 
 export interface VersionEntry {
   version: string;
@@ -8,6 +8,20 @@ export interface VersionEntry {
 }
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: "0.7.8",
+    date: "2026-05-18",
+    title: "Landing Pages — Celery Worker FK Fix + Generator E2E Verified",
+    changes: [
+      "CRITICAL: celery worker no podía enriquecer leads con landing_page_id — 'FK leads.landing_page_id could not find table landing_pages'",
+      "Fix: scheduled.py importa LandingPage + LandingPageVisit (mismo patrón que Payment) para resolver el mapper",
+      "Verificado: lead desde LP → enrichment (score 78.5+) → AI Analysis email enviado → nurture sequence avanzado",
+      "E2E test: 4 niches generados con Kimi (Restaurante 16KB, Clínica Dental 16.2KB, Gym 16.0KB, Spa Beverly Hills 16.2KB) con 56 keys completas",
+      "Cada niche genera copy distinto y profesional: testimonials, benefits, FAQs adaptados al negocio",
+      "Form de captura: first_name, last_name, email, phone, website — verificado en los 4 niches",
+      "Lead pipeline confirmado: form submit → /api/v1/leads/public → Lead creado → Celery enrich_and_welcome_lead → email 'Your AI automation analysis for X'",
+    ],
+  },
   {
     version: "0.7.7",
     date: "2026-05-18",

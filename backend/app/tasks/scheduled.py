@@ -10,6 +10,8 @@ from app.models.workspace import Workspace, WorkspaceMember  # noqa: F401
 from app.models.user import User
 from app.models.lead import Lead, LeadStatus, Interaction
 from app.models.payment import Payment  # noqa: F401 - needed for Lead mapper resolution
+from app.models.landing_page import LandingPage  # noqa: F401 - needed for Lead.landing_page_id FK resolution
+from app.models.landing_page_visit import LandingPageVisit  # noqa: F401
 from app.models.campaign import Campaign, CampaignLead
 from app.models.sequence import EmailSequence, SequenceStep, SequenceEnrollment, SequenceStatus, SequenceStepType
 from app.agents.outreach.channels.email import EmailOutreach
