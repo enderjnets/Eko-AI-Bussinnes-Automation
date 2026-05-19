@@ -41,17 +41,33 @@ export function getRateLimitHint(): RateLimitHint | null {
   return getCached<RateLimitHint>("buffer:rate_limit_hint");
 }
 
-function setRateLimitHint(window: string) {
+function setRateLimitHint(opts: {
+  window?: string;
+  retryAfterSec?: number | null;
+  resetAtUnix?: number | null;
+}) {
   const since = new Date();
-  const resetEstimate = new Date(since.getTime() + parseWindowMs(window));
+  let resetEstimate: Date;
+  if (opts.retryAfterSec && opts.retryAfterSec > 0) {
+    resetEstimate = new Date(since.getTime() + opts.retryAfterSec * 1000);
+  } else if (opts.resetAtUnix && opts.resetAtUnix > 0) {
+    resetEstimate = new Date(opts.resetAtUnix * 1000);
+  } else {
+    resetEstimate = new Date(since.getTime() + parseWindowMs(opts.window || "24h"));
+  }
+  // Hint expires when the actual reset time arrives (plus 30s safety margin).
+  const hintTtlMs = Math.max(
+    60_000,
+    resetEstimate.getTime() - since.getTime() + 30_000
+  );
   setCache<RateLimitHint>(
     "buffer:rate_limit_hint",
     {
-      window,
+      window: opts.window || "rolling",
       since: since.toISOString(),
       resetEstimate: resetEstimate.toISOString(),
     },
-    RATE_LIMIT_HINT_TTL_MS
+    hintTtlMs
   );
 }
 
@@ -69,11 +85,18 @@ async function rawQuery<T>(query: string): Promise<T> {
     body: JSON.stringify({ query }),
     cache: "no-store",
   });
+  // Buffer exposes precise rate-limit info in headers.
+  const retryAfterHeader = res.headers.get("retry-after"); // seconds
+  const remainingHeader = res.headers.get("x-ratelimit-remaining");
+  const resetHeader = res.headers.get("x-ratelimit-reset"); // unix epoch seconds
   const data = await res.json();
   if (data.errors) {
     const err: any = new Error(data.errors[0].message);
     err.code = data.errors[0]?.extensions?.code;
     err.window = data.errors[0]?.extensions?.window;
+    err.retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
+    err.resetAtUnix = resetHeader ? parseInt(resetHeader, 10) : null;
+    err.remaining = remainingHeader ? parseInt(remainingHeader, 10) : null;
     throw err;
   }
   return data.data as T;
@@ -110,9 +133,13 @@ export async function bufferQuery<T>(
     setCache<T>(`${cacheKey}:stale`, data, STALE_TTL_MS);
     return { data, stale: false, rateLimited: false };
   } catch (err: any) {
-    // Rate-limit
-    if (err.code === "RATE_LIMIT_EXCEEDED") {
-      setRateLimitHint(err.window || "24h");
+    // Rate-limit — Buffer headers give us a precise retry-after.
+    if (err.code === "RATE_LIMIT_EXCEEDED" || err.retryAfterSec) {
+      setRateLimitHint({
+        window: err.window || "24h",
+        retryAfterSec: err.retryAfterSec,
+        resetAtUnix: err.resetAtUnix,
+      });
       const stale = getCached<T>(`${cacheKey}:stale`);
       const fresh = getRateLimitHint()!;
       return {
