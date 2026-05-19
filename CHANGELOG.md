@@ -1,5 +1,46 @@
 
 
+## [0.7.9] — 2026-05-18
+
+### Landing Pages — Generator conoce el stack completo de Eko AI
+
+El `SYSTEM_PROMPT_TEMPLATE` del generator (en `backend/app/services/landing_page_template.py`) describía a Eko AI como "a 24/7 AI agent that answers calls, WhatsApp, books appointments, and follows up" — subvendía la plataforma. Resultado: las 4 BENEFIT cards de cada landing page generada siempre eran variaciones del mismo set fijo (call answering / WhatsApp / booking / follow-ups), sin diferenciarse según niche y sin promocionar Content Studio, Landing Page Builder, Proposal Generator, Voice Outbound, etc.
+
+#### Cambios
+
+- **Capability Library de 10 features** agregada al prompt:
+  1. 24/7 AI Receptionist (calls + WhatsApp + email, multilingual)
+  2. Smart Appointment Booking (Cal.com + Google Calendar + Outlook)
+  3. **AI Social Media Content Studio** (FLUX + Ken Burns + karaoke subs + Buffer auto-publish a IG/TikTok/YouTube/FB/LinkedIn)
+  4. **Self-Service Landing Page Builder** (cliente crea sus propias páginas con A/B testing)
+  5. AI Email Reply Agent (auto-respuesta bilingüe con language detection)
+  6. Voice AI Outbound (VAPI)
+  7. AI Proposal Generator
+  8. Smart CRM con Lead Scoring + Enrichment
+  9. Automated Nurture Sequences
+  10. Unified Inbox
+
+- **Guidelines explícitas** en el prompt: "A restaurant gets booking + WhatsApp + content + voice outbound. A real-estate broker gets CRM + proposals + email replies + voice outbound. A spa gets content + booking + landing pages + multilingual receptionist. Match capabilities to pain points the user described."
+
+- **Instrucción anti-repetición**: "do NOT default to the same 4 every time"
+
+#### Resultado (verificado regenerando los 4 niches existentes)
+
+| Niche | BENEFITs ahora |
+|---|---|
+| Restaurante | 24/7 Receptionist + Smart Table Booking + WhatsApp + **Social Content Studio** (menciona IG/TikTok/video) |
+| Clínica Dental | Receptionist + Booking + Insurance Verification Chat + Recall Reminders (conservador, NO content) |
+| Gym Boutique | Class Booking + Churn Prediction + Milestone Celebrations + **Social Content Studio** + menciona CRM |
+| Spa Wellness | Booking + Gift Card Sales 24/7 + Multilingual + **AI Content Studio** (Instagram, video) |
+
+#### Impacto
+
+- Las landing pages ahora venden la plataforma completa, no solo "phone bot"
+- El AI elige las features según el dolor del niche — healthcare se queda conservador, hospitality vende content marketing
+- Cliente potencial ve que Eko AI hace MÁS de lo que pensaba → conversion-rate esperado más alto
+- Memoria nueva `project_eko_ai_landing_capability_library.md`: lista canónica de las 10 features que SIEMPRE debe poder elegir el generator
+
+
 ## [0.7.8] — 2026-05-18
 
 ### Landing Pages — Celery Worker FK Fix + Generator E2E Verified

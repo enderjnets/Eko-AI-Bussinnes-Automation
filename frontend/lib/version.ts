@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "0.7.8";
+export const CURRENT_VERSION = "0.7.9";
 
 export interface VersionEntry {
   version: string;
@@ -8,6 +8,19 @@ export interface VersionEntry {
 }
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: "0.7.9",
+    date: "2026-05-18",
+    title: "Landing Pages — Generator conoce el stack completo de Eko AI",
+    changes: [
+      "SYSTEM_PROMPT_TEMPLATE expandido con 'Capability Library' de 10 features de la plataforma",
+      "Antes el AI solo vendía 'phone bot' — ahora rota benefits según el niche desde un pool de 10",
+      "Nuevas features promocionadas: AI Social Content Studio (videos auto-publicados a IG/TikTok/YouTube/FB/LinkedIn), Self-Service Landing Page Builder (cliente crea sus propias páginas), AI Proposal Generator, Voice AI Outbound (VAPI), Smart CRM con Lead Scoring, AI Email Reply Agent, Nurture Sequences, Unified Inbox",
+      "Guidelines explícitas en el prompt: 'A restaurant gets booking + WhatsApp + content + voice outbound. A spa gets content + booking + landing pages + multilingual receptionist.'",
+      "4 LPs regeneradas (Restaurante/Clínica/Gym/Spa) — ahora mencionan Instagram/TikTok/video/CRM/content donde tiene sentido por niche",
+      "Healthcare conservador: Clínica Dental NO mete 'Social Content Studio' como benefit (el AI lo entiende)",
+    ],
+  },
   {
     version: "0.7.8",
     date: "2026-05-18",
