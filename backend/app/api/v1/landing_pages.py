@@ -49,6 +49,148 @@ def _hash_ip(ip: str) -> str:
     return hashlib.sha256(ip.encode()).hexdigest()
 
 
+async def _track_visit(
+    db: AsyncSession,
+    landing_page_id: int,
+    session_id: str,
+    ip_hash: Optional[str],
+    user_agent: Optional[str],
+    referrer: Optional[str],
+):
+    """Background task: record a visit."""
+    try:
+        visit = LandingPageVisit(
+            landing_page_id=landing_page_id,
+            session_id=session_id,
+            ip_hash=ip_hash,
+            user_agent=user_agent,
+            referrer=referrer,
+        )
+        db.add(visit)
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to track visit: {e}")
+        await db.rollback()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Public + utility routes (NO auth, MUST be declared before /{landing_page_id}
+# so FastAPI's order-sensitive routing doesn't shadow them).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/track")
+async def track_visit(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    *,
+    lp_id: int = Query(..., alias="lp_id"),
+    sid: Optional[str] = Query(None, alias="sid"),
+):
+    """Tracking pixel — returns a 1x1 transparent GIF."""
+    if not sid:
+        sid = _get_session_id(request)
+
+    ip = request.client.host if request.client else ""
+    background_tasks.add_task(
+        _track_visit,
+        db,
+        lp_id,
+        sid,
+        _hash_ip(ip) if ip else None,
+        request.headers.get("user-agent"),
+        request.headers.get("referer"),
+    )
+
+    # 1x1 transparent GIF
+    gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
+    return Response(content=gif, media_type="image/gif")
+
+
+@router.get("/random")
+async def serve_random_landing_page(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Redirect to a random landing page from the pool."""
+    result = await db.execute(
+        select(LandingPage)
+        .where(LandingPage.is_random_pool == True)
+        .order_by(func.random())
+        .limit(1)
+    )
+    lp = result.scalar_one_or_none()
+    if not lp:
+        raise HTTPException(status_code=404, detail="No landing pages in random pool")
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"/lp/{lp.slug}")
+
+
+@router.get("/public/active", response_class=HTMLResponse)
+async def serve_active_landing_page(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the currently active landing page."""
+    result = await db.execute(
+        select(LandingPage).where(LandingPage.is_active == True).limit(1)
+    )
+    lp = result.scalar_one_or_none()
+    if not lp:
+        raise HTTPException(status_code=404, detail="No active landing page found")
+
+    sid = _get_session_id(request)
+    ip = request.client.host if request.client else ""
+    background_tasks.add_task(
+        _track_visit,
+        db,
+        lp.id,
+        sid,
+        _hash_ip(ip) if ip else None,
+        request.headers.get("user-agent"),
+        request.headers.get("referer"),
+    )
+
+    html = lp.html_content.replace("{landing_page_id}", str(lp.id))
+    return HTMLResponse(content=html)
+
+
+@router.get("/public/{slug}", response_class=HTMLResponse)
+async def serve_public_landing_page(
+    slug: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a public landing page by slug."""
+    result = await db.execute(select(LandingPage).where(LandingPage.slug == slug))
+    lp = result.scalar_one_or_none()
+    if not lp:
+        raise HTTPException(status_code=404, detail="Landing page not found")
+
+    # Track visit in background
+    sid = _get_session_id(request)
+    ip = request.client.host if request.client else ""
+    background_tasks.add_task(
+        _track_visit,
+        db,
+        lp.id,
+        sid,
+        _hash_ip(ip) if ip else None,
+        request.headers.get("user-agent"),
+        request.headers.get("referer"),
+    )
+
+    # Inject landing_page_id into tracking pixel and hidden form field
+    html = lp.html_content
+    html = html.replace("{landing_page_id}", str(lp.id))
+
+    return HTMLResponse(content=html)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Admin endpoints (auth required)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,17 +269,7 @@ async def compare_landing_pages(
     )
     leads_map = {row.landing_page_id: row.form_fills or 0 for row in leads_result.all()}
 
-    # Aggregate bookings per page
-    bookings_result = await db.execute(
-        select(
-            Booking.lead_id,
-            func.count().label("bookings"),
-        )
-        .join(Lead, Booking.lead_id == Lead.id)
-        .where(Lead.landing_page_id.in_(page_ids))
-        .group_by(Booking.lead_id)
-    )
-    # We need per landing_page_id, not per lead
+    # Aggregate bookings per landing_page_id
     bookings_per_lp = await db.execute(
         select(
             Lead.landing_page_id,
@@ -162,6 +294,34 @@ async def compare_landing_pages(
     )
     deals_map = {row.landing_page_id: row.deals or 0 for row in deals_result.all()}
 
+    # Aggregate inbound email replies per landing_page_id
+    email_replies_result = await db.execute(
+        select(
+            Lead.landing_page_id,
+            func.count().label("c"),
+        )
+        .select_from(Interaction)
+        .join(Lead, Interaction.lead_id == Lead.id)
+        .where(Lead.landing_page_id.in_(page_ids))
+        .where(Interaction.direction == "inbound")
+        .where(Interaction.interaction_type == "email")
+        .group_by(Lead.landing_page_id)
+    )
+    email_replies_map = {row.landing_page_id: row.c or 0 for row in email_replies_result.all()}
+
+    # Aggregate calls made per landing_page_id
+    calls_result = await db.execute(
+        select(
+            Lead.landing_page_id,
+            func.count().label("c"),
+        )
+        .select_from(PhoneCall)
+        .join(Lead, PhoneCall.lead_id == Lead.id)
+        .where(Lead.landing_page_id.in_(page_ids))
+        .group_by(Lead.landing_page_id)
+    )
+    calls_map = {row.landing_page_id: row.c or 0 for row in calls_result.all()}
+
     compare_items = []
     for p in pages:
         v = visits_map.get(p.id, {"total_visits": 0, "unique_visits": 0})
@@ -179,6 +339,8 @@ async def compare_landing_pages(
                 "unique_visits": unique_visits,
                 "form_fills": form_fills,
                 "conversion_rate": conversion_rate,
+                "email_replies": email_replies_map.get(p.id, 0),
+                "calls_made": calls_map.get(p.id, 0),
                 "bookings_created": bookings_map.get(p.id, 0),
                 "deals_closed": deals_map.get(p.id, 0),
             },
@@ -186,6 +348,18 @@ async def compare_landing_pages(
         })
 
     return compare_items
+
+
+def _workspace_match(model_col, workspace_id):
+    """Build a NULL-safe workspace filter.
+
+    Postgres `NULL == NULL` returns NULL, not TRUE, so an `==` filter would
+    silently miss rows whose workspace_id is NULL when lp.workspace_id is also
+    NULL. This helper handles both branches explicitly.
+    """
+    if workspace_id is None:
+        return model_col.is_(None)
+    return or_(model_col == workspace_id, model_col.is_(None))
 
 
 @router.post("", response_model=LandingPageResponse, status_code=201)
@@ -196,13 +370,19 @@ async def create_landing_page(
     tenant: Optional[TenantContext] = Depends(get_tenant_context_optional),
 ):
     """Create a new landing page (manual or from prompt)."""
-    # Check slug uniqueness
-    existing = await db.execute(select(LandingPage).where(LandingPage.slug == data.slug))
+    workspace_id = tenant.workspace_id if tenant else None
+
+    # Check slug uniqueness within the same workspace scope
+    existing = await db.execute(
+        select(LandingPage)
+        .where(LandingPage.slug == data.slug)
+        .where(_workspace_match(LandingPage.workspace_id, workspace_id))
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Slug '{data.slug}' already exists")
 
     lp = LandingPage(
-        workspace_id=tenant.workspace_id if tenant else None,
+        workspace_id=workspace_id,
         name=data.name,
         slug=data.slug,
         prompt=data.prompt,
@@ -219,12 +399,12 @@ async def create_landing_page(
     await db.commit()
     await db.refresh(lp)
 
-    # If activating, deactivate others
+    # If activating, deactivate others in the same workspace scope
     if lp.is_active:
         await db.execute(
             update(LandingPage)
             .where(LandingPage.id != lp.id)
-            .where(LandingPage.workspace_id == lp.workspace_id)
+            .where(_workspace_match(LandingPage.workspace_id, lp.workspace_id))
             .values(is_active=False)
         )
         await db.commit()
@@ -259,9 +439,13 @@ async def update_landing_page(
     if not lp:
         raise HTTPException(status_code=404, detail="Landing page not found")
 
-    # Check slug uniqueness if changing
+    # Check slug uniqueness if changing, scoped to the same workspace
     if data.slug and data.slug != lp.slug:
-        existing = await db.execute(select(LandingPage).where(LandingPage.slug == data.slug))
+        existing = await db.execute(
+            select(LandingPage)
+            .where(LandingPage.slug == data.slug)
+            .where(_workspace_match(LandingPage.workspace_id, lp.workspace_id))
+        )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail=f"Slug '{data.slug}' already exists")
 
@@ -273,12 +457,12 @@ async def update_landing_page(
     await db.commit()
     await db.refresh(lp)
 
-    # If activating, deactivate others
+    # If activating, deactivate others in the same workspace scope
     if data.is_active:
         await db.execute(
             update(LandingPage)
             .where(LandingPage.id != lp.id)
-            .where(LandingPage.workspace_id == lp.workspace_id)
+            .where(_workspace_match(LandingPage.workspace_id, lp.workspace_id))
             .values(is_active=False)
         )
         await db.commit()
@@ -299,6 +483,10 @@ async def delete_landing_page(
     if not lp:
         raise HTTPException(status_code=404, detail="Landing page not found")
 
+    # Delete dependent visits first to avoid FK violations on non-CASCADE schemas
+    await db.execute(
+        delete(LandingPageVisit).where(LandingPageVisit.landing_page_id == landing_page_id)
+    )
     await db.delete(lp)
     await db.commit()
     return None
@@ -381,11 +569,11 @@ async def activate_landing_page(
     lp.is_active = True
     await db.commit()
 
-    # Deactivate others in same workspace
+    # Deactivate others in the same workspace scope (NULL-safe)
     await db.execute(
         update(LandingPage)
         .where(LandingPage.id != lp.id)
-        .where(LandingPage.workspace_id == lp.workspace_id)
+        .where(_workspace_match(LandingPage.workspace_id, lp.workspace_id))
         .values(is_active=False)
     )
     await db.commit()
@@ -540,11 +728,15 @@ async def clone_landing_page(
         raise HTTPException(status_code=404, detail="Landing page not found")
 
     new_slug = f"{lp.slug}-copy"
-    # Ensure unique slug
+    # Ensure unique slug within the same workspace
     suffix = 1
     base_slug = new_slug
     while True:
-        existing = await db.execute(select(LandingPage).where(LandingPage.slug == new_slug))
+        existing = await db.execute(
+            select(LandingPage)
+            .where(LandingPage.slug == new_slug)
+            .where(_workspace_match(LandingPage.workspace_id, lp.workspace_id))
+        )
         if not existing.scalar_one_or_none():
             break
         suffix += 1
@@ -569,144 +761,3 @@ async def clone_landing_page(
     await db.commit()
     await db.refresh(new_lp)
     return new_lp
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Public endpoints (no auth)
-# ─────────────────────────────────────────────────────────────────────────────
-
-@router.get("/public/{slug}", response_class=HTMLResponse)
-async def serve_public_landing_page(
-    slug: str,
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-):
-    """Serve a public landing page by slug."""
-    result = await db.execute(select(LandingPage).where(LandingPage.slug == slug))
-    lp = result.scalar_one_or_none()
-    if not lp:
-        raise HTTPException(status_code=404, detail="Landing page not found")
-
-    # Track visit in background
-    sid = _get_session_id(request)
-    ip = request.client.host if request.client else ""
-    background_tasks.add_task(
-        _track_visit,
-        db,
-        lp.id,
-        sid,
-        _hash_ip(ip) if ip else None,
-        request.headers.get("user-agent"),
-        request.headers.get("referer"),
-    )
-
-    # Inject landing_page_id into tracking pixel and hidden form field
-    html = lp.html_content
-    html = html.replace("{landing_page_id}", str(lp.id))
-
-    return HTMLResponse(content=html)
-
-
-@router.get("/public/active", response_class=HTMLResponse)
-async def serve_active_landing_page(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-):
-    """Serve the currently active landing page."""
-    result = await db.execute(
-        select(LandingPage).where(LandingPage.is_active == True).limit(1)
-    )
-    lp = result.scalar_one_or_none()
-    if not lp:
-        raise HTTPException(status_code=404, detail="No active landing page found")
-
-    sid = _get_session_id(request)
-    ip = request.client.host if request.client else ""
-    background_tasks.add_task(
-        _track_visit,
-        db,
-        lp.id,
-        sid,
-        _hash_ip(ip) if ip else None,
-        request.headers.get("user-agent"),
-        request.headers.get("referer"),
-    )
-
-    html = lp.html_content.replace("{landing_page_id}", str(lp.id))
-    return HTMLResponse(content=html)
-
-
-@router.get("/random")
-async def serve_random_landing_page(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-):
-    """Redirect to a random landing page from the pool."""
-    result = await db.execute(
-        select(LandingPage)
-        .where(LandingPage.is_random_pool == True)
-        .order_by(func.random())
-        .limit(1)
-    )
-    lp = result.scalar_one_or_none()
-    if not lp:
-        raise HTTPException(status_code=404, detail="No landing pages in random pool")
-
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url=f"/landing?lp={lp.slug}")
-
-
-@router.get("/track")
-async def track_visit(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    *,
-    lp_id: int = Query(..., alias="lp_id"),
-    sid: Optional[str] = Query(None, alias="sid"),
-):
-    """Tracking pixel — returns a 1x1 transparent GIF."""
-    if not sid:
-        sid = _get_session_id(request)
-
-    ip = request.client.host if request.client else ""
-    background_tasks.add_task(
-        _track_visit,
-        db,
-        lp_id,
-        sid,
-        _hash_ip(ip) if ip else None,
-        request.headers.get("user-agent"),
-        request.headers.get("referer"),
-    )
-
-    # 1x1 transparent GIF
-    gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
-    return Response(content=gif, media_type="image/gif")
-
-
-async def _track_visit(
-    db: AsyncSession,
-    landing_page_id: int,
-    session_id: str,
-    ip_hash: Optional[str],
-    user_agent: Optional[str],
-    referrer: Optional[str],
-):
-    """Background task: record a visit."""
-    try:
-        visit = LandingPageVisit(
-            landing_page_id=landing_page_id,
-            session_id=session_id,
-            ip_hash=ip_hash,
-            user_agent=user_agent,
-            referrer=referrer,
-        )
-        db.add(visit)
-        await db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to track visit: {e}")
-        await db.rollback()

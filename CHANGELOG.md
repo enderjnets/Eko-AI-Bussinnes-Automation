@@ -1,5 +1,42 @@
 
 
+## [0.7.7] — 2026-05-18
+
+### Landing Pages — Route Ordering Fix + Compare Enrichment
+
+Causa raíz: en `backend/app/api/v1/landing_pages.py` las rutas se registraban en orden incorrecto. El path-param `GET /{landing_page_id}` (línea 235) se declaraba ANTES de `GET /track`, `GET /random` y `GET /public/active` (líneas 611-662). FastAPI evalúa rutas en orden de registro, así que cualquier request a `/track` era capturada por `/{landing_page_id}` con `landing_page_id="track"` — y como ese endpoint requiere auth, devolvía **401 Unauthorized** antes incluso de intentar parsear "track" como int. Resultado: el tracking pixel JAMÁS persistía visitas, los analytics siempre mostraban 0 visitas, y el random pool nunca funcionó.
+
+#### CRITICAL fix
+- **Rutas concretas movidas ANTES de `/{landing_page_id}`** en `landing_pages.py` — orden nuevo: `/track`, `/random`, `/public/active`, `/public/{slug}`, `/`, `/compare`, `POST /`, luego path-params
+- **Visit tracking confirmado**: 3 pixels lp_id=8 → 3 rows nuevas en `landing_page_visits` (37→40 verificado en DB)
+- **`/random`** ahora redirige a `/lp/{slug}` (SEO-friendly via nginx) en vez de `/landing?lp=`
+
+#### Fix `/compare`
+- Agregadas aggregations `email_replies` (Interaction inbound + email) y `calls_made` (PhoneCall join Lead) por landing_page_id
+- Frontend Compare tab ya esperaba estos campos en `LandingPage.analytics` (líneas 44-53 de page.tsx) — ahora se renderizan con valores reales
+
+#### Fix `workspace_id` NULL-safety
+- En Postgres `NULL == NULL` devuelve NULL, no TRUE → la lógica "deactivate others in same workspace" silenciosamente fallaba si lp.workspace_id era NULL
+- Nuevo helper `_workspace_match(model_col, workspace_id)` que usa `IS NULL` cuando aplica
+- Aplicado en `create_landing_page`, `update_landing_page`, `activate_landing_page`, `clone_landing_page` y los slug-uniqueness checks
+
+#### Fix slug uniqueness
+- Antes: check global → bloqueaba el slug `"test"` para todos los workspaces
+- Ahora: scoped al workspace propio (o NULL si no hay tenant) — workspaces distintos pueden reutilizar slugs
+
+#### Fix DELETE
+- `delete_landing_page` ahora borra explícitamente `landing_page_visits` antes de borrar la página (evita FK violation si el modelo no tiene CASCADE)
+
+#### Impacto
+- Visit tracking ahora persiste en DB → analytics reflejan visitas reales
+- Compare tab muestra email_replies y calls_made (antes `undefined`)
+- `/random` y `/public/active` finalmente funcionan (eran dead code)
+- Multi-workspace deactivate-others ya no falla silenciosamente
+
+#### Memoria
+- Nueva memoria `feedback_fastapi_route_order.md`: "rutas concretas ANTES de path-params en routers FastAPI" — regla de oro confirmada con producción rota durante ~3 semanas
+
+
 ## [0.7.6] — 2026-05-18
 
 ### Content Studio — Unified Buffer Snapshot + Rate-limit Banner

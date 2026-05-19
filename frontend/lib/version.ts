@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "0.7.6";
+export const CURRENT_VERSION = "0.7.7";
 
 export interface VersionEntry {
   version: string;
@@ -8,6 +8,21 @@ export interface VersionEntry {
 }
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: "0.7.7",
+    date: "2026-05-18",
+    title: "Landing Pages — Route Ordering Fix + Compare Enrichment",
+    changes: [
+      "CRITICAL: tracking pixel /api/v1/landing-pages/track devolvía 401 — analytics siempre mostraban 0 visitas",
+      "CRITICAL: /random y /public/active eran inalcanzables (eclipsados por /{landing_page_id})",
+      "Fix: reordenadas rutas concretas ANTES del path-param /{landing_page_id} en landing_pages.py",
+      "Fix: /compare ahora incluye email_replies y calls_made por landing page (faltaba aggregation)",
+      "Fix: workspace_id NULL-safe en activate/create/update (Postgres NULL==NULL devuelve NULL, no TRUE)",
+      "Fix: slug uniqueness scoped a workspace (antes era global, bloqueaba slugs idénticos entre workspaces)",
+      "Fix: DELETE landing page borra explícitamente landing_page_visits antes (evita FK constraint si no hay CASCADE)",
+      "Fix: /random ahora redirige a /lp/{slug} (URL pública SEO-friendly) en vez de /landing?lp=",
+    ],
+  },
   {
     version: "0.7.6",
     date: "2026-05-18",
