@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "0.7.5";
+export const CURRENT_VERSION = "0.7.6";
 
 export interface VersionEntry {
   version: string;
@@ -8,6 +8,24 @@ export interface VersionEntry {
 }
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: "0.7.6",
+    date: "2026-05-18",
+    title: "Content Studio — Unified Buffer Snapshot + Rate-limit Banner",
+    changes: [
+      "Fix: 4 tabs de Content Studio (Publicaciones, Calendario, Analytics, Monitoreo) rotos por Buffer 429",
+      "New: /content-api/buffer-snapshot — un solo endpoint con {channels, posts, limits} en una query GraphQL",
+      "New: hook useBufferData con caché module-level + pub/sub para compartir datos entre los 4 tabs",
+      "New: RateLimitBanner con countdown preciso (lee retry-after header, no window:24h del body)",
+      "New: lib/buffer.ts cliente unificado con 5min fresh + 24h stale + rate-limit hint pegajoso",
+      "Fix: PostsList filtra client-side (sin re-fetch por filtro)",
+      "Fix: PostCalendar sin re-fetch al cambiar mes",
+      "Fix: AnalyticsDashboard text-gold inválido reemplazado por text-yellow-300; charts muestran 'Sin datos' elegante",
+      "Fix: BufferStatus empty state amigable cuando no hay caché",
+      "Fix: PipelineHistory infiere status 'completed' por presencia de scripts[]/produced[] (columna Content ya no muestra '—')",
+      "Reduce Buffer API consumption: 5+ calls por dashboard load → 1 call compartida (caché 5min)",
+    ],
+  },
   {
     version: "0.7.5",
     date: "2026-05-17",

@@ -1,5 +1,32 @@
 
 
+## [0.7.6] — 2026-05-18
+
+### Content Studio — Unified Buffer Snapshot + Rate-limit Banner
+
+Causa raíz: cada uno de los 4 tabs (Publicaciones, Calendario, Analytics, Monitoreo) llamaba a la API GraphQL de Buffer independientemente. PostsList re-fetcheaba en cada filtro y PostCalendar en cada cambio de mes — agotando la cuota free de Buffer (100 calls/15min y 100/día) con sólo navegar el dashboard. Cuando Buffer respondía 429, los 4 tabs se rompían silenciosamente.
+
+#### Nuevo
+- **`lib/buffer.ts`** — cliente GraphQL central con 5min fresh + 24h stale + sticky rate-limit hint que corta-circuita llamadas siguientes
+- **`/content-api/buffer-snapshot`** — un solo endpoint que devuelve `{channels, posts, limits, rate_limited, rate_limit:{window,reset_at}}` en una sola query GraphQL para que los 4 tabs compartan un fetch
+- **`hooks/useBufferData`** — caché compartida module-level + pub/sub para sincronizar todos los componentes
+- **`RateLimitBanner`** — banner global que muestra countdown preciso al reset (lee `retry-after` header, no `window:"24h"` engañoso del body)
+
+#### Fix
+- **PostsList**: filtro por status ahora es client-side (sin re-fetch); delete/edit optimistas patcheando caché local
+- **PostCalendar**: navegación de mes sin re-fetch (usa la misma snapshot que los otros tabs)
+- **AnalyticsDashboard**: clase `text-gold` (no existe en Tailwind) reemplazada por `text-yellow-300`; charts muestran "Sin datos" elegantemente en vez de crashear
+- **BufferStatus**: empty state amigable cuando no hay canales en caché
+- **PipelineHistory**: infiere `completed` por presencia de `scripts[]/produced[]/uploaded[]` (la columna "Content" mostraba "—" aunque generaba scripts correctamente)
+- **`/content-api/pipelines`**: pasa arrays compactos de stages para soportar la inferencia anterior
+
+#### Impacto
+- Buffer API consumption: 5+ calls por dashboard load → **1 call compartida** (caché 5min)
+- Cuando rate-limited: corta-circuita instant, evita quemar más quota
+- E2E verificado: 4 tabs renderizan correctamente bajo Buffer 429 activo con countdown real (6m, no 24h)
+
+---
+
 ## [0.7.5] — 2026-05-17
 
 ### Content Studio Pipeline — Video Fixes + Login Repair + Buffer Caching
