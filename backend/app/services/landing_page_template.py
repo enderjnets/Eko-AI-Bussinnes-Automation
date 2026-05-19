@@ -367,65 +367,143 @@ user's niche and prompt — do NOT default to the same 4 every time):
 1. **24/7 AI Receptionist** — Answers phone calls, WhatsApp messages, and emails
    instantly in the business's voice. Never miss a customer again. Handles FAQs,
    quotes, hours, directions, multilingual (English + Spanish out of the box).
+   Optionally hands off to humans on edge cases with full conversation context.
 
 2. **Smart Appointment Booking** — Direct Cal.com / Google Calendar / Outlook
    integration. Customers book, reschedule, cancel without human help. Sends
-   reminders + reduces no-shows. Handles waitlists automatically.
+   SMS/WhatsApp reminders, manages waitlists automatically, supports Google Meet
+   and Zoom links, handles timezones (America/Denver-aware out of the box).
 
-3. **AI Social Media Content Studio** — Auto-generates short-form (≈30s) and
-   long-form (≈80s) videos with AI imagery (FLUX), Ken Burns motion, crossfade
-   transitions, multilingual TTS, and yellow karaoke subtitles. Auto-publishes
-   to Instagram, Facebook, TikTok, YouTube, and LinkedIn on peak-hour slots via
-   Buffer integration. End-frame CTAs with the business's offer and contact.
-   Owner just describes the business once — content runs on autopilot.
+3. **AI Social Media Content Studio** — Auto-generates short-form (≈30s, 4
+   scenes) and long-form (≈80s, 6 scenes) videos with FLUX AI imagery, Ken
+   Burns motion, crossfade transitions, multilingual Edge-TTS voiceover, and
+   yellow karaoke subtitles (DejaVu Sans on semi-transparent background).
+   Auto-publishes to Instagram, Facebook, TikTok, YouTube, and LinkedIn via
+   Buffer on peak-hour slots scheduled per network. End-frame CTA is dynamic
+   (business name, address, offer, price). Owner describes the business once
+   in a Brief modal with language selector — content runs on autopilot.
 
 4. **Self-Service Landing Page Builder** — The business owner can generate
-   unlimited niche-specific landing pages with AI from a simple prompt. Built-in
-   A/B testing (Compare tab) with side-by-side analytics, random-pool rotation,
-   SEO-friendly URLs, conversion tracking, lead-source attribution. Fully
-   self-service — no developer needed.
+   unlimited niche-specific landing pages with AI from a simple prompt. 4
+   pre-loaded templates (Restaurant, Clinic, Gym, Spa) plus unlimited custom
+   prompts. Built-in A/B testing via Compare tab (side-by-side analytics:
+   visits, unique, conversion-rate, email-replies, calls-made, bookings-created,
+   deals-closed). Random-pool rotation for auto-variant testing. SEO-friendly
+   /lp/{slug} URLs via nginx. Lead-source attribution per page.
 
 5. **AI Email Reply Agent** — Auto-responds to inbound customer emails with
-   contextual replies. Language detection (writes in customer's language).
-   Keyword-based intent routing. Threads conversations by lead.
+   contextual replies. Language detection writes back in the customer's language
+   (Spanish or English). Keyword-based intent routing. Threads conversations
+   by lead. Inbound webhook + auto-reply works in EN/ES out of the box.
 
 6. **Voice AI Outbound (VAPI)** — AI agent makes outbound calls for follow-ups,
    appointment confirmations, lead qualification, and re-activation campaigns.
-   Sounds natural, hands off to humans on edge cases.
+   Natural voice, real conversation flow, hands off to humans on edge cases
+   with full transcript handed back to your CRM.
 
 7. **AI Proposal Generator** — Auto-generates personalized sales proposals from
-   lead data. Includes pricing, scope, terms — owner reviews and sends.
+   lead data: pricing, scope, terms, branding — owner reviews and sends in one
+   click. Trained on the business's existing voice and offer catalog.
 
 8. **Smart CRM with Lead Scoring** — Auto-enriches leads with website + social
-   data, scores them 0-100 by fit and intent, prioritizes outreach. Tracks every
-   interaction (call, email, WhatsApp, booking) in one unified timeline.
+   data, scores them 0-100 by fit and intent, prioritizes outreach. Churn
+   prediction algorithm flags at-risk customers before they leave. Full
+   interaction timeline (call, email, WhatsApp, booking, web form, payment)
+   in one unified view per lead. Deals pipeline with conversion tracking.
 
-9. **Automated Nurture Sequences** — Multi-touch email + SMS campaigns that fire
-   on schedule or behavior triggers. Drip campaigns, re-engagement flows,
-   post-purchase follow-ups — all hands-off.
+9. **Automated Nurture Sequences** — Multi-touch email + SMS campaigns that
+   fire on schedule or behavior triggers. Drip campaigns, re-engagement flows,
+   post-purchase follow-ups, milestone celebrations (1st month, 100th class,
+   anniversary). Auto-enrollment when a lead is captured — all hands-off.
 
-10. **Unified Inbox** — Every channel (phone transcripts, WhatsApp, email, web
-    form) in one threaded view per customer. AI summarizes long threads,
-    suggests replies, flags hot leads.
+10. **Unified Inbox** — Every channel (phone transcripts, WhatsApp, email,
+    web form, voice transcripts) in one threaded view per customer. AI
+    summarizes long threads, flags hot leads, suggests replies. Searchable
+    across all interactions.
 
 ═══════════════════════════════════════════════════════════════════════════════
-COPY GUIDELINES
+PER-SECTION COPY RULES — apply ALL of these
 ═══════════════════════════════════════════════════════════════════════════════
 
-- The 4 BENEFIT cards must feel niche-specific. A restaurant gets booking +
-  WhatsApp + content + voice outbound. A real-estate broker gets CRM + proposals
-  + email replies + voice outbound. A spa gets content + booking + landing
-  pages + multilingual receptionist. Match capabilities to pain points the
-  user described in the prompt.
-- The 3 HOW-IT-WORKS steps should describe a realistic onboarding journey
-  (demo → configuration → go-live) but mention which capabilities the business
-  is activating.
-- The 4 FAQs must address the niche's most common objections (integrations,
-  setup time, cancellation, what happens to existing tools, multilingual, etc.).
-- Reviews should sound like real local business owners — name + role + city.
-- DO NOT mention a capability the user explicitly excluded.
+HERO_SUBTITLE (max 200 chars):
+- Must mention 24/7 availability AND at least ONE other Eko AI capability
+  by name (Content Studio, Lead Scoring, Nurture Sequences, Landing Page
+  Builder, Voice Outbound, Smart CRM, etc.) — chosen from the 4 BENEFITs
+  you will list below. NOT just receptionist + booking.
+
+BENEFITS (4 cards):
+- Each card TITLE MUST name an Eko AI feature explicitly. Examples of good
+  titles: "AI Social Media Content Studio", "Smart Booking with Cal.com Sync",
+  "Self-Service Landing Page Builder", "Churn Prediction via Lead Scoring",
+  "Voice AI Outbound (VAPI)", "Automated Nurture Sequences". Avoid generic
+  outcome-only titles like "Never Miss a Call" or "More Bookings".
+- Each card DESCRIPTION (max 120 chars) MUST include at least one technical
+  specific: integration name (Cal.com, Buffer, VAPI), auto-publish channel
+  list (IG/TikTok/YouTube), AI model (FLUX), language coverage (EN+ES),
+  scoring scale (0-100), or quantitative claim (3 shorts/week).
+
+HOW_IT_WORKS (3 steps):
+- Step 2 (configuration) MUST name the 4 capabilities the business is
+  activating. Pattern: "We configure your Eko stack — [feature 1],
+  [feature 2], [feature 3], and [feature 4] — trained on your brand voice."
+  Use the SAME 4 capability names you chose for the BENEFIT cards.
+- Step 3 (go-live) MUST mention an outcome that ties to a specific feature
+  (e.g., "Your AI receptionist answers in 2 seconds, the Content Studio
+  publishes 3 shorts/week, and the Nurture Sequence re-engages dormant
+  customers").
+
+REVIEWS (2 testimonials, max 150 chars each):
+- AT LEAST ONE of the 2 reviews MUST mention a NON-phone-bot capability
+  by name. The other can still be receptionist/booking-focused.
+- Good examples to model on:
+  * "Eko's Content Studio published 12 reels last month — our IG followers
+    grew 40% with zero hours from us." — Spa owner
+  * "The Lead Scoring algorithm flagged 8 at-risk members. We won 6 back
+    with the auto-nurture sequence." — Gym owner
+  * "We A/B tested 3 landing pages in one afternoon — conversion went from
+    2% to 7% in two weeks." — Restaurant owner
+  * "Voice Outbound called 200 dormant patients last quarter, booked 47
+    cleanings, all while I slept." — Dental practice owner
+
+FAQs (4 Q&As):
+- AT LEAST 2 of the 4 FAQs MUST be FEATURE-EDUCATION (not just setup or
+  cancellation boilerplate). Examples of feature-education FAQ patterns:
+  * "Does Eko AI also create content for my social media?" — answer should
+    name Content Studio + FLUX + Buffer + the 5 networks + posting cadence.
+  * "Can I A/B test landing pages?" — answer names Random Pool + Compare
+    tab + the 7 analytics columns.
+  * "Does it score and follow up with leads automatically?" — answer names
+    CRM scoring 0-100 + Nurture Sequences + Unified Inbox.
+  * "Can Eko make outbound calls too?" — answer names VAPI Voice Outbound
+    + follow-up + re-activation campaigns.
+- The other 2 FAQs can address standard objections (setup time, integrations
+  with existing tools, cancellation policy, data ownership, multilingual).
+
+FOOTER (headline + subheadline):
+- FOOTER_HEADLINE: NOT generic anxiety messaging ("Stop losing X"). Must
+  hint at the all-in-one platform value. Examples:
+  * "Your Entire Customer Journey, Automated"
+  * "One AI Stack for [Niche] — Booking, Content, Follow-up"
+  * "Reception, Marketing, and Follow-up — Handled"
+- FOOTER_SUBHEADLINE: name 1-2 specific Eko AI features the visitor will
+  unlock when they get the analysis (e.g., "See exactly how the Content
+  Studio + Lead Scoring stack would fit your business.").
+
+═══════════════════════════════════════════════════════════════════════════════
+GUARDRAILS
+═══════════════════════════════════════════════════════════════════════════════
+
+- DO NOT mention a capability the user explicitly excluded in their prompt.
 - DO NOT use the literal phrase "Eko AI is just a phone bot" — that
   undersells the platform.
+- DO NOT default to the same 4 BENEFITs every time. Restaurants ≠ Clinics
+  ≠ Gyms ≠ Spas ≠ Real Estate ≠ Law Firms.
+- If your output for REVIEWS, FAQs, or FOOTER mentions ZERO Eko AI features
+  by name, you have failed the brief — rewrite that section before
+  returning the JSON.
+- Healthcare / legal niches: be conservative with Content Studio as a
+  benefit (compliance concerns). Lead Scoring, Nurture Sequences, Unified
+  Inbox, and Voice Outbound are safer for those niches.
 
 ═══════════════════════════════════════════════════════════════════════════════
 

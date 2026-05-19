@@ -1,4 +1,4 @@
-export const CURRENT_VERSION = "0.7.9";
+export const CURRENT_VERSION = "0.7.10";
 
 export interface VersionEntry {
   version: string;
@@ -8,6 +8,22 @@ export interface VersionEntry {
 }
 
 export const CHANGELOG: VersionEntry[] = [
+  {
+    version: "0.7.10",
+    date: "2026-05-18",
+    title: "Landing Pages — Feature mentions en TODAS las secciones",
+    changes: [
+      "v0.7.9 introdujo Capability Library pero solo BENEFIT cards la usaban — REVIEWS, FAQs, FOOTER, HOW_IT_WORKS, HERO_SUBTITLE seguían sonando 'phone bot genérico'",
+      "Coverage antes: 2-3/6 secciones con feature mentions; coverage después: 6/6 en las 4 niches",
+      "Nuevo bloque 'PER-SECTION COPY RULES' obliga al AI a nombrar features en cada sección con ejemplos concretos",
+      "Capability Library expandida con detalles granulares (FLUX, Ken Burns, karaoke subs DejaVu Sans, Buffer peak-hours, 4 escenas shorts/6 longs, end-frame CTA dinámico, Edge-TTS multilingüe, A/B Compare tab con 7 analytics columns)",
+      "Reviews ahora mencionan wins específicos: '12 reels published, IG +40%', 'Lead Scoring flagged 8 at-risk, won 6 back', 'Voice Outbound called 40 dormant, 12 reactivated'",
+      "FAQs incluyen 2 feature-education por página: 'Does Eko create content?', 'Can it predict churn?', 'Recall sequences?'",
+      "FOOTERs ahora venden plataforma: 'Reception, Marketing, and Follow-up — Handled', 'Your Entire Patient Journey, Automated'",
+      "Guardrail nuevo: 'If REVIEWS, FAQs, or FOOTER mention ZERO features by name, you have failed — rewrite'",
+      "Niche-conservatism mantenida: Clínica Dental sigue sin Content Studio (compliance healthcare); usa Lead Scoring + Nurture",
+    ],
+  },
   {
     version: "0.7.9",
     date: "2026-05-18",

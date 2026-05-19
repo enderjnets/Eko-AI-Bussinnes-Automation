@@ -1,5 +1,66 @@
 
 
+## [0.7.10] — 2026-05-18
+
+### Landing Pages — Feature mentions en TODAS las secciones
+
+v0.7.9 introdujo la Capability Library de 10 features pero un audit posterior reveló que solo los BENEFIT cards realmente la usaban. REVIEWS, FAQs, FOOTER, HOW_IT_WORKS y HERO_SUBTITLE seguían sonando "phone bot genérico" en las 4 niches de prueba. **Coverage**: 2-3/6 secciones por página.
+
+#### Diagnóstico previo
+- **REVIEWS**: 8/8 testimonials hablaban solo de calls/bookings/WhatsApp — cero mencionaban Content Studio, Lead Scoring, Landing Page Builder, etc.
+- **FAQs**: 16/16 eran boilerplate operacional (setup time, cancellation, Cal.com integration) — cero feature-education
+- **FOOTERs**: 4/4 eran anxiety-messaging idénticos ("Stop Losing Diners", "Stop Letting Patients Slip Away", etc.) sin nombrar ninguna feature
+
+#### Cambios
+
+1. **Capability Library expandida** con detalles granulares para que el AI tenga material concreto que weave:
+   - Content Studio ahora describe: FLUX AI imagery + Ken Burns + crossfade + multilingual Edge-TTS + yellow karaoke subs (DejaVu Sans, semi-transparent bg) + Buffer auto-publish peak-hours + 4 escenas shorts ~30s / 6 escenas longs ~80s + end-frame CTA dinámico (name/address/offer/price)
+   - Landing Page Builder: Random pool + Compare tab + 7 analytics columns (visits/unique/conv-rate/email-replies/calls-made/bookings-created/deals-closed) + /lp/{slug} SEO
+   - Smart CRM: enrichment + 0-100 scoring + churn prediction + interaction timeline (call/email/WhatsApp/booking/web form/payment)
+   - Nurture Sequences: drip + re-engagement + milestone celebrations (1st month, 100th class, anniversary)
+   - Unified Inbox: AI summarization + hot-lead flags + suggested replies
+
+2. **Nuevo bloque "PER-SECTION COPY RULES"** que obliga al AI a nombrar features por sección con ejemplos concretos:
+   - HERO_SUBTITLE debe mencionar 24/7 + UNA feature no-receptionist
+   - BENEFITS: cada card title nombra una feature explícita; descripción incluye un técnico específico
+   - HOW_IT_WORKS step 2 nombra las 4 capabilities activadas; step 3 vincula outcomes a features
+   - REVIEWS: al menos 1 de 2 quotes menciona feature non-phone-bot (con ejemplos: "Content Studio published 12 reels", "Lead Scoring flagged 8 at-risk")
+   - FAQs: al menos 2 de 4 son feature-education ("Does Eko create content?", "Can I A/B test?")
+   - FOOTER: NOT "Stop losing X" anxiety; SI "Your Entire X Journey, Automated" + 1-2 features
+
+3. **Guardrail nuevo**: "If your output for REVIEWS, FAQs, or FOOTER mentions ZERO Eko AI features by name, you have failed the brief — rewrite that section before returning the JSON."
+
+#### Resultado (regeneración paralela de las 4 LPs, ~48s con Kimi)
+
+Mentions de features por página (antes → después):
+
+| Página | Antes (~) | Después | Features dominantes |
+|---|---|---|---|
+| test-restaurante | 3 | **26** | Content Studio x6, FLUX, Buffer, IG, TikTok, YouTube, karaoke, Cal.com x7, Email Reply |
+| test-clinica-dental | 1 | **13** | Lead Scoring x4, Nurture Sequence x6, Churn (no Content Studio — healthcare-safe ✓) |
+| test-gym-boutique | 2 | **24** | Churn x6, Lead Scoring x4, Nurture x5, VAPI, Voice Outbound, Unified Inbox |
+| test-spa-wellness | 2 | **23** | Content Studio x6, FLUX, Buffer, IG, TikTok, karaoke, Lead Scoring, Nurture |
+
+**Reviews ahora vendiendo features reales**:
+- Restaurante: "Eko's Content Studio published 12 reels last month — our IG followers grew 40% with zero hours from us."
+- Clínica: "The Lead Scoring algorithm flagged 8 at-risk patients. We won 6 back with the auto-nurture sequence."
+- Gym: "Voice Outbound called 40 dormant members last month. 12 reactivated and booked classes the same week."
+- Spa: "Eko's Content Studio published 12 reels last month — our IG followers grew 40%."
+
+**FOOTERs ahora vendiendo plataforma**:
+- Restaurante: "Reception, Marketing, and Follow-up — Handled"
+- Clínica: "Your Entire Patient Journey, Automated"
+- Gym: "One AI Stack for Your Studio — Booking, Retention, Follow-up"
+- Spa: "Your Entire Guest Journey, Automated"
+
+#### Impacto
+- Cobertura de feature mentions: **6/6 secciones** en las 4 niches (era 2-3/6)
+- El cliente potencial ve la plataforma COMPLETA en cada sección, no solo en BENEFITs
+- Niche-conservatism mantenida: healthcare no mete Content Studio (compliance)
+- Form de captura sigue 5/5 (first_name, last_name, email, phone, website) en todas las páginas
+- Pipeline end-to-end sigue funcionando (lead created → enrichment → AI Analysis email)
+
+
 ## [0.7.9] — 2026-05-18
 
 ### Landing Pages — Generator conoce el stack completo de Eko AI
