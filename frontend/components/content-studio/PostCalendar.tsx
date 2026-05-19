@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   format,
   startOfMonth,
@@ -31,21 +31,12 @@ import {
   Film,
 } from "lucide-react";
 import VideoModal from "./VideoModal";
-
-interface Post {
-  id: string;
-  text: string;
-  status: string;
-  dueAt?: string;
-  sentAt?: string;
-  createdAt: string;
-  channelId: string;
-  channelService: string;
-  channel?: { name: string };
-  assets?: { source?: string; thumbnail?: string; mimeType?: string }[];
-  externalLink?: string;
-  error?: { message?: string };
-}
+import RateLimitBanner from "./RateLimitBanner";
+import {
+  useBufferData,
+  patchBufferPost,
+  type BufferPost,
+} from "@/hooks/useBufferData";
 
 const SERVICE_COLORS: Record<string, string> = {
   tiktok: "border-l-white",
@@ -68,10 +59,8 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 };
 
 export default function PostCalendar() {
+  const { data, loading } = useBufferData();
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalVideoUrl, setModalVideoUrl] = useState("");
@@ -84,25 +73,10 @@ export default function PostCalendar() {
   const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
   const days = eachDayOfInterval({ start: calendarStart, end: calendarEnd });
 
-  // Fetch posts for the visible month range (plus buffer)
-  useEffect(() => {
-    setLoading(true);
-    const start = format(subMonths(monthStart, 1), "yyyy-MM-dd");
-    const end = format(addMonths(monthEnd, 1), "yyyy-MM-dd");
-
-    fetch(`/content-api/posts?limit=100&startDate=${start}&endDate=${end}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setPosts(data.posts || []);
-        setError("");
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [currentMonth]);
+  const posts = data?.posts || [];
 
   const postsByDay = useMemo(() => {
-    const map = new Map<string, Post[]>();
+    const map = new Map<string, BufferPost[]>();
     for (const post of posts) {
       const dateStr = post.dueAt
         ? post.dueAt.split("T")[0]
@@ -121,22 +95,28 @@ export default function PostCalendar() {
 
   const weekDays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-  const openVideoModal = (post: Post) => {
+  const openVideoModal = (post: BufferPost) => {
     const source = post.assets?.[0]?.source;
     if (!source) return;
     setModalVideoUrl(source);
-    setModalProxyUrl(`/content-api/proxy-video?url=${encodeURIComponent(source)}`);
-    setModalTitle(post.text.slice(0, 60) + (post.text.length > 60 ? "..." : ""));
+    setModalProxyUrl(
+      `/content-api/proxy-video?url=${encodeURIComponent(source)}`
+    );
+    setModalTitle(
+      post.text.slice(0, 60) + (post.text.length > 60 ? "..." : "")
+    );
     setModalOpen(true);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("¿Seguro que quieres borrar este post?")) return;
     try {
-      const res = await fetch(`/content-api/posts/${id}/delete`, { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setPosts((prev) => prev.filter((p) => p.id !== id));
+      const res = await fetch(`/content-api/posts/${id}/delete`, {
+        method: "POST",
+      });
+      const r = await res.json();
+      if (r.error) throw new Error(r.error);
+      patchBufferPost(id, null);
     } catch (e: any) {
       alert("Error borrando: " + e.message);
     }
@@ -144,7 +124,8 @@ export default function PostCalendar() {
 
   return (
     <div className="space-y-4">
-      {/* Header */}
+      <RateLimitBanner snapshot={data} />
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <CalendarDays className="w-5 h-5 text-pink-400" />
@@ -174,21 +155,14 @@ export default function PostCalendar() {
         </div>
       </div>
 
-      {loading && (
+      {loading && posts.length === 0 && (
         <div className="flex items-center justify-center py-12">
           <div className="w-6 h-6 border-2 border-eko-blue border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-red-400 text-sm">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && (
+      {!loading && (
         <>
-          {/* Weekday headers */}
           <div className="grid grid-cols-7 gap-1">
             {weekDays.map((d) => (
               <div
@@ -200,7 +174,6 @@ export default function PostCalendar() {
             ))}
           </div>
 
-          {/* Calendar grid */}
           <div className="grid grid-cols-7 gap-1">
             {days.map((day) => {
               const dateStr = format(day, "yyyy-MM-dd");
@@ -234,7 +207,6 @@ export default function PostCalendar() {
                     {format(day, "d")}
                   </span>
 
-                  {/* Mini post previews */}
                   {dayPosts.length > 0 && (
                     <div className="mt-1 space-y-1">
                       {dayPosts.slice(0, 2).map((post) => (
@@ -247,11 +219,13 @@ export default function PostCalendar() {
                             }
                           }}
                           className={`flex items-center gap-1 rounded px-1 py-0.5 text-[9px] leading-tight truncate cursor-pointer hover:opacity-80 transition-opacity border-l-2 ${
-                            SERVICE_COLORS[post.channelService] || "border-l-gray-500"
+                            SERVICE_COLORS[post.channelService] ||
+                            "border-l-gray-500"
                           } ${
                             post.status === "error"
                               ? "bg-red-500/10 text-red-300"
-                              : SERVICE_BG[post.channelService] || "bg-white/5 text-gray-300"
+                              : SERVICE_BG[post.channelService] ||
+                                "bg-white/5 text-gray-300"
                           }`}
                           title={post.text}
                         >
@@ -260,7 +234,9 @@ export default function PostCalendar() {
                           ) : (
                             <ImageOff className="w-2.5 h-2.5 flex-shrink-0 opacity-50" />
                           )}
-                          <span className="truncate">{post.text.slice(0, 14)}</span>
+                          <span className="truncate">
+                            {post.text.slice(0, 14)}
+                          </span>
                         </div>
                       ))}
                       {dayPosts.length > 2 && (
@@ -277,7 +253,6 @@ export default function PostCalendar() {
         </>
       )}
 
-      {/* Day detail modal */}
       {selectedDay && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -286,14 +261,14 @@ export default function PostCalendar() {
           }}
         >
           <div className="w-full max-w-2xl mx-4 rounded-xl border border-white/10 bg-eko-graphite shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/5 bg-white/[0.02]">
               <h4 className="text-sm font-medium capitalize">
                 {format(selectedDay, "EEEE d 'de' MMMM", { locale: es })}
               </h4>
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-500">
-                  {selectedDayPosts.length} publicación{selectedDayPosts.length !== 1 ? "es" : ""}
+                  {selectedDayPosts.length} publicación
+                  {selectedDayPosts.length !== 1 ? "es" : ""}
                 </span>
                 <button
                   onClick={() => setSelectedDay(null)}
@@ -304,14 +279,19 @@ export default function PostCalendar() {
               </div>
             </div>
 
-            {/* Modal body */}
             <div className="p-4 overflow-y-auto space-y-4">
               {selectedDayPosts.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-8">Sin publicaciones este día.</p>
+                <p className="text-sm text-gray-500 text-center py-8">
+                  Sin publicaciones este día.
+                </p>
               ) : (
                 selectedDayPosts.map((post) => {
                   const thumbnail = post.assets?.[0]?.thumbnail;
-                  const proxyUrl = thumbnail ? `/content-api/proxy-image?url=${encodeURIComponent(thumbnail)}` : null;
+                  const proxyUrl = thumbnail
+                    ? `/content-api/proxy-image?url=${encodeURIComponent(
+                        thumbnail
+                      )}`
+                    : null;
                   const isError = post.status === "error";
                   const hasVideo = !!post.assets?.[0]?.source;
 
@@ -319,10 +299,11 @@ export default function PostCalendar() {
                     <div
                       key={post.id}
                       className={`rounded-xl border overflow-hidden ${
-                        isError ? "border-red-500/15 bg-red-500/[0.03]" : "border-white/5 bg-white/[0.02]"
+                        isError
+                          ? "border-red-500/15 bg-red-500/[0.03]"
+                          : "border-white/5 bg-white/[0.02]"
                       }`}
                     >
-                      {/* Thumbnail */}
                       <ModalThumbnail
                         proxyUrl={proxyUrl}
                         hasVideo={hasVideo}
@@ -332,8 +313,12 @@ export default function PostCalendar() {
 
                       <div className="p-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-[10px] capitalize text-gray-400">{post.channelService}</span>
-                          {STATUS_ICON[post.status] || <Clock className="w-3 h-3 text-gray-400" />}
+                          <span className="text-[10px] capitalize text-gray-400">
+                            {post.channelService}
+                          </span>
+                          {STATUS_ICON[post.status] || (
+                            <Clock className="w-3 h-3 text-gray-400" />
+                          )}
                           {isError && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
                               Error
@@ -341,7 +326,13 @@ export default function PostCalendar() {
                           )}
                           {post.dueAt && post.status === "scheduled" && (
                             <span className="text-[10px] text-gray-500">
-                              {new Date(post.dueAt).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
+                              {new Date(post.dueAt).toLocaleTimeString(
+                                "es-CO",
+                                {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }
+                              )}
                             </span>
                           )}
                         </div>
@@ -408,7 +399,16 @@ function ModalThumbnail({
       onClick={onClick}
       role={hasVideo ? "button" : undefined}
       tabIndex={hasVideo ? 0 : undefined}
-      onKeyDown={hasVideo ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      onKeyDown={
+        hasVideo
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
     >
       {proxyUrl && imgValid && (
         <img
@@ -434,7 +434,9 @@ function ModalThumbnail({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <ImageOff className="w-8 h-8 text-gray-600" />
           {isExpired && (
-            <span className="text-[10px] text-red-400/80 font-medium">Media expirado</span>
+            <span className="text-[10px] text-red-400/80 font-medium">
+              Media expirado
+            </span>
           )}
         </div>
       )}

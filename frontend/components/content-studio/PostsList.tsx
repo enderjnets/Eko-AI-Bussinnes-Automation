@@ -1,70 +1,89 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, Trash2, ExternalLink, Pencil, RefreshCw, Send, Clock, AlertTriangle, CheckCircle, ImageOff, Play } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  Loader2,
+  Trash2,
+  ExternalLink,
+  Pencil,
+  RefreshCw,
+  Send,
+  Clock,
+  AlertTriangle,
+  CheckCircle,
+  ImageOff,
+  Play,
+} from "lucide-react";
 import VideoModal from "./VideoModal";
+import RateLimitBanner from "./RateLimitBanner";
+import {
+  useBufferData,
+  patchBufferPost,
+  type BufferPost,
+} from "@/hooks/useBufferData";
 
-interface Post {
-  id: string;
-  text: string;
-  status: string;
-  dueAt?: string;
-  sentAt?: string;
-  createdAt: string;
-  channelId: string;
-  channelService: string;
-  channel?: { name: string };
-  assets?: { source?: string; thumbnail?: string; mimeType?: string }[];
-  externalLink?: string;
-  error?: { message?: string };
-}
-
-const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
-  sent: { label: "Publicado", color: "bg-eko-green/10 text-eko-green border-eko-green/20", icon: CheckCircle },
-  scheduled: { label: "Programado", color: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20", icon: Clock },
-  sending: { label: "Enviando", color: "bg-eko-blue/10 text-eko-blue border-eko-blue/20", icon: Send },
-  error: { label: "Error", color: "bg-red-500/10 text-red-400 border-red-500/20", icon: AlertTriangle },
-  draft: { label: "Borrador", color: "bg-gray-500/10 text-gray-400 border-gray-500/20", icon: Pencil },
-  needs_approval: { label: "Pendiente", color: "bg-purple-500/10 text-purple-400 border-purple-500/20", icon: Clock },
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; color: string; icon: any }
+> = {
+  sent: {
+    label: "Publicado",
+    color: "bg-eko-green/10 text-eko-green border-eko-green/20",
+    icon: CheckCircle,
+  },
+  scheduled: {
+    label: "Programado",
+    color: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
+    icon: Clock,
+  },
+  sending: {
+    label: "Enviando",
+    color: "bg-eko-blue/10 text-eko-blue border-eko-blue/20",
+    icon: Send,
+  },
+  error: {
+    label: "Error",
+    color: "bg-red-500/10 text-red-400 border-red-500/20",
+    icon: AlertTriangle,
+  },
+  draft: {
+    label: "Borrador",
+    color: "bg-gray-500/10 text-gray-400 border-gray-500/20",
+    icon: Pencil,
+  },
+  needs_approval: {
+    label: "Pendiente",
+    color: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    icon: Clock,
+  },
 };
 
 export default function PostsList() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refresh } = useBufferData();
   const [filter, setFilter] = useState("all");
-  const [error, setError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalVideoUrl, setModalVideoUrl] = useState("");
   const [modalProxyUrl, setModalProxyUrl] = useState("");
   const [modalTitle, setModalTitle] = useState("");
 
-  const loadPosts = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const url = filter === "all" ? "/content-api/posts" : `/content-api/posts?status=${filter}`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setPosts(data.posts || []);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadPosts();
-  }, [filter]);
+  const allPosts = data?.posts || [];
+  const posts = useMemo(
+    () =>
+      filter === "all"
+        ? allPosts
+        : allPosts.filter((p) => p.status === filter),
+    [allPosts, filter]
+  );
 
   const handleDelete = async (id: string) => {
     if (!confirm("¿Seguro que quieres borrar este post?")) return;
     try {
-      const res = await fetch(`/content-api/posts/${id}/delete`, { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setPosts((prev) => prev.filter((p) => p.id !== id));
+      const res = await fetch(`/content-api/posts/${id}/delete`, {
+        method: "POST",
+      });
+      const r = await res.json();
+      if (r.error) throw new Error(r.error);
+      patchBufferPost(id, null);
     } catch (e: any) {
       alert("Error borrando: " + e.message);
     }
@@ -79,28 +98,44 @@ export default function PostsList() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newText }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, text: newText } : p)));
+      const r = await res.json();
+      if (r.error) throw new Error(r.error);
+      patchBufferPost(id, { text: newText });
     } catch (e: any) {
       alert("Error editando: " + e.message);
     }
   };
 
   const statusConfig = (status: string) =>
-    STATUS_CONFIG[status] || { label: status, color: "bg-gray-500/10 text-gray-400", icon: Clock };
+    STATUS_CONFIG[status] || {
+      label: status,
+      color: "bg-gray-500/10 text-gray-400",
+      icon: Clock,
+    };
 
-  const openVideoModal = (post: Post) => {
+  const openVideoModal = (post: BufferPost) => {
     const source = post.assets?.[0]?.source;
     if (!source) return;
     setModalVideoUrl(source);
-    setModalProxyUrl(`/content-api/proxy-video?url=${encodeURIComponent(source)}`);
-    setModalTitle(post.text.slice(0, 60) + (post.text.length > 60 ? "..." : ""));
+    setModalProxyUrl(
+      `/content-api/proxy-video?url=${encodeURIComponent(source)}`
+    );
+    setModalTitle(
+      post.text.slice(0, 60) + (post.text.length > 60 ? "..." : "")
+    );
     setModalOpen(true);
   };
 
+  const counts = useMemo(() => {
+    const acc: Record<string, number> = { all: allPosts.length };
+    for (const p of allPosts) acc[p.status] = (acc[p.status] || 0) + 1;
+    return acc;
+  }, [allPosts]);
+
   return (
     <div className="space-y-4">
+      <RateLimitBanner snapshot={data} />
+
       <div className="flex flex-wrap gap-2">
         {[
           { value: "all", label: "Todos" },
@@ -121,31 +156,43 @@ export default function PostsList() {
             }`}
           >
             {f.label}
+            <span className="ml-1.5 text-[10px] opacity-70">
+              {counts[f.value] || 0}
+            </span>
           </button>
         ))}
         <button
-          onClick={loadPosts}
-          className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          onClick={refresh}
+          disabled={loading}
+          className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
           title="Refrescar"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
-      {loading && (
+      {loading && allPosts.length === 0 && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-eko-blue" />
         </div>
       )}
 
-      {error && (
+      {!loading && allPosts.length === 0 && data?.error && !data.rate_limited && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-red-400 text-sm">
-          {error}
+          {data.error}
         </div>
       )}
 
-      {!loading && !error && posts.length === 0 && (
-        <div className="text-center py-12 text-gray-500">No hay posts con este filtro.</div>
+      {!loading && posts.length === 0 && allPosts.length > 0 && (
+        <div className="text-center py-12 text-gray-500">
+          No hay posts con este filtro.
+        </div>
+      )}
+
+      {!loading && allPosts.length === 0 && !data?.error && (
+        <div className="text-center py-12 text-gray-500">
+          Sin publicaciones todavía.
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -153,13 +200,17 @@ export default function PostsList() {
           const status = statusConfig(post.status);
           const StatusIcon = status.icon;
           const thumbnail = post.assets?.[0]?.thumbnail;
-          const proxyUrl = thumbnail ? `/content-api/proxy-image?url=${encodeURIComponent(thumbnail)}` : null;
+          const proxyUrl = thumbnail
+            ? `/content-api/proxy-image?url=${encodeURIComponent(thumbnail)}`
+            : null;
           const hasVideo = !!post.assets?.[0]?.source;
           const isExpired = post.status === "error";
 
           return (
-            <div key={post.id} className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden hover:border-white/10 transition-colors">
-              {/* Thumbnail */}
+            <div
+              key={post.id}
+              className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden hover:border-white/10 transition-colors"
+            >
               <ThumbnailArea
                 proxyUrl={proxyUrl}
                 hasVideo={hasVideo}
@@ -169,22 +220,49 @@ export default function PostsList() {
 
               <div className="p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border ${status.color}`}>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full border ${status.color}`}
+                  >
                     <StatusIcon className="w-3 h-3 inline mr-1" />
                     {status.label}
                   </span>
-                  <span className="text-[10px] text-gray-500 capitalize">{post.channelService}</span>
+                  <span className="text-[10px] text-gray-500 capitalize">
+                    {post.channelService}
+                  </span>
                 </div>
 
                 <p className="text-sm line-clamp-3 mb-2">{post.text}</p>
 
                 <div className="flex items-center gap-1 text-[10px] text-gray-500 mb-3">
-                  {post.dueAt && post.status === "scheduled" && <span>Programado: {new Date(post.dueAt).toLocaleString("es-CO", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
-                  {post.sentAt && <span>Publicado: {new Date(post.sentAt).toLocaleString("es-CO", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
-                  {!post.dueAt && !post.sentAt && <span>Creado: {new Date(post.createdAt).toLocaleDateString("es-CO")}</span>}
+                  {post.dueAt && post.status === "scheduled" && (
+                    <span>
+                      Programado:{" "}
+                      {new Date(post.dueAt).toLocaleString("es-CO", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                  {post.sentAt && (
+                    <span>
+                      Publicado:{" "}
+                      {new Date(post.sentAt).toLocaleString("es-CO", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                  {!post.dueAt && !post.sentAt && (
+                    <span>
+                      Creado:{" "}
+                      {new Date(post.createdAt).toLocaleDateString("es-CO")}
+                    </span>
+                  )}
                 </div>
-
-
 
                 <div className="flex items-center gap-1">
                   <button
@@ -240,13 +318,10 @@ function ThumbnailArea({
   isExpired: boolean;
   onClick: () => void;
 }) {
-  const [imgLoaded, setImgLoaded] = useState(false);
   const [imgValid, setImgValid] = useState(true);
 
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    setImgLoaded(true);
     const img = e.currentTarget;
-    // Proxy returns 1x1 transparent PNG on failure
     if (img.naturalWidth < 2 && img.naturalHeight < 2) {
       setImgValid(false);
     }
@@ -263,7 +338,16 @@ function ThumbnailArea({
       onClick={onClick}
       role={hasVideo ? "button" : undefined}
       tabIndex={hasVideo ? 0 : undefined}
-      onKeyDown={hasVideo ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      onKeyDown={
+        hasVideo
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
     >
       {proxyUrl && imgValid && (
         <img
@@ -273,14 +357,10 @@ function ThumbnailArea({
             hasVideo ? "group-hover:scale-105" : ""
           }`}
           onLoad={handleLoad}
-          onError={() => {
-            setImgLoaded(true);
-            setImgValid(false);
-          }}
+          onError={() => setImgValid(false)}
         />
       )}
 
-      {/* Play overlay on hover */}
       {hasVideo && imgValid && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity">
           <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center border border-white/30">
@@ -289,12 +369,13 @@ function ThumbnailArea({
         </div>
       )}
 
-      {/* Placeholder */}
       {showPlaceholder && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <ImageOff className="w-8 h-8 text-gray-600" />
           {showExpiredOverlay && (
-            <span className="text-[10px] text-red-400/80 font-medium">Media expirado</span>
+            <span className="text-[10px] text-red-400/80 font-medium">
+              Media expirado
+            </span>
           )}
         </div>
       )}

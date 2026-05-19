@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Loader2,
   RefreshCw,
@@ -19,28 +19,8 @@ import {
   Play,
 } from "lucide-react";
 import VideoModal from "./VideoModal";
-
-interface Post {
-  id: string;
-  text: string;
-  status: string;
-  dueAt?: string;
-  sentAt?: string;
-  createdAt: string;
-  channelId: string;
-  channelService: string;
-  channel?: { name: string };
-  assets?: { source?: string; thumbnail?: string; mimeType?: string }[];
-  externalLink?: string;
-  error?: { message?: string };
-}
-
-interface Channel {
-  id: string;
-  name: string;
-  service: string;
-  isDisconnected: boolean;
-}
+import RateLimitBanner from "./RateLimitBanner";
+import { useBufferData, type BufferPost } from "@/hooks/useBufferData";
 
 interface ChannelStats {
   total: number;
@@ -57,7 +37,10 @@ const serviceColors: Record<string, string> = {
   facebook: "text-blue-400",
 };
 
-const STATUS_CONFIG: Record<string, { color: string; icon: any; label: string }> = {
+const STATUS_CONFIG: Record<
+  string,
+  { color: string; icon: any; label: string }
+> = {
   sent: { color: "text-eko-green", icon: CheckCircle, label: "Publicado" },
   scheduled: { color: "text-yellow-400", icon: Clock, label: "Programado" },
   sending: { color: "text-eko-blue", icon: Send, label: "Enviando" },
@@ -66,10 +49,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: any; label: string }>
 };
 
 export default function BufferStatus() {
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data, loading, refresh } = useBufferData();
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [showErrors, setShowErrors] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -77,27 +57,9 @@ export default function BufferStatus() {
   const [modalProxyUrl, setModalProxyUrl] = useState("");
   const [modalTitle, setModalTitle] = useState("");
 
-  const load = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch("/content-api/buffer-posts");
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setChannels(data.channels || []);
-      setPosts(data.posts || []);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const channels = data?.channels || [];
+  const posts = data?.posts || [];
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  // Stats per channel
   const getStats = (channelId: string): ChannelStats => {
     const channelPosts = posts.filter((p) => p.channelId === channelId);
     return {
@@ -112,16 +74,20 @@ export default function BufferStatus() {
 
   const totalErrors = posts.filter((p) => p.status === "error").length;
 
-  const openVideoModal = (post: Post) => {
+  const openVideoModal = (post: BufferPost) => {
     const source = post.assets?.[0]?.source;
     if (!source) return;
     setModalVideoUrl(source);
-    setModalProxyUrl(`/content-api/proxy-video?url=${encodeURIComponent(source)}`);
-    setModalTitle(post.text.slice(0, 60) + (post.text.length > 60 ? "..." : ""));
+    setModalProxyUrl(
+      `/content-api/proxy-video?url=${encodeURIComponent(source)}`
+    );
+    setModalTitle(
+      post.text.slice(0, 60) + (post.text.length > 60 ? "..." : "")
+    );
     setModalOpen(true);
   };
 
-  if (loading) {
+  if (loading && channels.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-eko-blue" />
@@ -129,25 +95,41 @@ export default function BufferStatus() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-red-400 text-sm">
-        {error}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
-      {/* Global stats */}
+      <RateLimitBanner snapshot={data} />
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Canales", value: channels.length, icon: BarChart3, color: "text-gray-400" },
-          { label: "Posts activos", value: posts.filter((p) => p.status !== "error").length, icon: CheckCircle, color: "text-eko-green" },
-          { label: "Programados", value: posts.filter((p) => p.status === "scheduled").length, icon: Clock, color: "text-yellow-400" },
-          { label: "Errores", value: totalErrors, icon: AlertTriangle, color: "text-red-400" },
+          {
+            label: "Canales",
+            value: channels.length,
+            icon: BarChart3,
+            color: "text-gray-400",
+          },
+          {
+            label: "Posts activos",
+            value: posts.filter((p) => p.status !== "error").length,
+            icon: CheckCircle,
+            color: "text-eko-green",
+          },
+          {
+            label: "Programados",
+            value: posts.filter((p) => p.status === "scheduled").length,
+            icon: Clock,
+            color: "text-yellow-400",
+          },
+          {
+            label: "Errores",
+            value: totalErrors,
+            icon: AlertTriangle,
+            color: "text-red-400",
+          },
         ].map((s) => (
-          <div key={s.label} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+          <div
+            key={s.label}
+            className="rounded-xl border border-white/5 bg-white/[0.02] p-3"
+          >
             <div className="flex items-center gap-2 mb-1">
               <s.icon className={`w-4 h-4 ${s.color}`} />
               <span className="text-xs text-gray-500">{s.label}</span>
@@ -157,7 +139,6 @@ export default function BufferStatus() {
         ))}
       </div>
 
-      {/* Controls */}
       <div className="flex items-center gap-2">
         <button
           onClick={() => setShowErrors(!showErrors)}
@@ -167,19 +148,31 @@ export default function BufferStatus() {
               : "bg-white/5 text-gray-400 border border-white/5 hover:bg-white/10"
           }`}
         >
-          {showErrors ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+          {showErrors ? (
+            <Eye className="w-3.5 h-3.5" />
+          ) : (
+            <EyeOff className="w-3.5 h-3.5" />
+          )}
           Mostrar errores ({totalErrors})
         </button>
         <button
-          onClick={load}
-          className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+          onClick={refresh}
+          disabled={loading}
+          className="ml-auto p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-50"
           title="Refrescar"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
 
-      {/* Channel list */}
+      {channels.length === 0 && !loading && (
+        <div className="text-center py-12 text-gray-500 text-sm">
+          {data?.rate_limited
+            ? "Sin canales en caché — refresca cuando la cuota se restablezca."
+            : "Sin canales configurados."}
+        </div>
+      )}
+
       <div className="space-y-2">
         {channels.map((ch) => {
           const stats = getStats(ch.id);
@@ -190,25 +183,34 @@ export default function BufferStatus() {
             .slice(0, 50);
 
           return (
-            <div key={ch.id} className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden">
-              {/* Channel header */}
+            <div
+              key={ch.id}
+              className="rounded-xl border border-white/5 bg-white/[0.02] overflow-hidden"
+            >
               <button
-                onClick={() => setExpandedChannel(isExpanded ? null : ch.id)}
+                onClick={() =>
+                  setExpandedChannel(isExpanded ? null : ch.id)
+                }
                 className="w-full flex items-center justify-between p-4 hover:bg-white/[0.02] transition-colors"
               >
                 <div className="flex items-center gap-3">
                   {ch.isDisconnected ? (
                     <WifiOff className="w-4 h-4 text-red-400" />
                   ) : (
-                    <Wifi className={`w-4 h-4 ${serviceColors[ch.service] || "text-gray-400"}`} />
+                    <Wifi
+                      className={`w-4 h-4 ${
+                        serviceColors[ch.service] || "text-gray-400"
+                      }`}
+                    />
                   )}
                   <div className="text-left">
                     <div className="text-sm font-medium">{ch.name}</div>
-                    <div className="text-xs text-gray-500 capitalize">{ch.service}</div>
+                    <div className="text-xs text-gray-500 capitalize">
+                      {ch.service}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
-                  {/* Mini stats */}
                   <div className="hidden sm:flex items-center gap-2">
                     {stats.error > 0 && (
                       <span className="text-xs text-red-400">
@@ -234,18 +236,22 @@ export default function BufferStatus() {
                 </div>
               </button>
 
-              {/* Channel posts */}
               {isExpanded && (
                 <div className="border-t border-white/5 p-4 space-y-2 max-h-96 overflow-y-auto">
                   {channelPosts.length === 0 ? (
-                    <p className="text-sm text-gray-500">Sin posts recientes.</p>
+                    <p className="text-sm text-gray-500">
+                      Sin posts recientes.
+                    </p>
                   ) : (
                     channelPosts.map((post) => {
-                      const config = STATUS_CONFIG[post.status] || STATUS_CONFIG.draft;
+                      const config =
+                        STATUS_CONFIG[post.status] || STATUS_CONFIG.draft;
                       const StatusIcon = config.icon;
                       const thumbnail = post.assets?.[0]?.thumbnail;
                       const proxyUrl = thumbnail
-                        ? `/content-api/proxy-image?url=${encodeURIComponent(thumbnail)}`
+                        ? `/content-api/proxy-image?url=${encodeURIComponent(
+                            thumbnail
+                          )}`
                         : null;
                       const hasVideo = !!post.assets?.[0]?.source;
 
@@ -266,21 +272,27 @@ export default function BufferStatus() {
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <StatusIcon className={`w-3 h-3 ${config.color}`} />
-                              <span className="text-[10px] text-gray-400">{config.label}</span>
+                              <StatusIcon
+                                className={`w-3 h-3 ${config.color}`}
+                              />
+                              <span className="text-[10px] text-gray-400">
+                                {config.label}
+                              </span>
                               {post.dueAt && (
                                 <span className="text-[10px] text-gray-500">
-                                  {new Date(post.dueAt).toLocaleString("es-CO", {
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
+                                  {new Date(post.dueAt).toLocaleString(
+                                    "es-CO",
+                                    {
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    }
+                                  )}
                                 </span>
                               )}
                             </div>
                             <p className="text-sm line-clamp-2">{post.text}</p>
-
                           </div>
                         </div>
                       );
@@ -333,7 +345,16 @@ function MonitorThumbnail({
       onClick={onClick}
       role={hasVideo ? "button" : undefined}
       tabIndex={hasVideo ? 0 : undefined}
-      onKeyDown={hasVideo ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
+      onKeyDown={
+        hasVideo
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
     >
       {proxyUrl && imgValid && (
         <img
@@ -352,7 +373,9 @@ function MonitorThumbnail({
       {showPlaceholder && (
         <div className="w-full h-full flex flex-col items-center justify-center gap-0.5">
           <ImageOff className="w-4 h-4 text-gray-600" />
-          {isExpired && <span className="text-[7px] text-red-400/70">Expirado</span>}
+          {isExpired && (
+            <span className="text-[7px] text-red-400/70">Expirado</span>
+          )}
         </div>
       )}
     </div>

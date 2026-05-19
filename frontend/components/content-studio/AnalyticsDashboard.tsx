@@ -16,42 +16,16 @@ import {
   Line,
   Legend,
 } from "recharts";
-import {
-  format,
-  subDays,
-  parseISO,
-  isWithinInterval,
-  startOfDay,
-  endOfDay,
-} from "date-fns";
+import { format, subDays, parseISO } from "date-fns";
 import {
   Loader2,
   Film,
   CheckCircle,
   Clock,
   TrendingUp,
-  AlertTriangle,
 } from "lucide-react";
-
-interface Post {
-  id: string;
-  text: string;
-  status: string;
-  dueAt?: string;
-  sentAt?: string;
-  createdAt: string;
-  channelService: string;
-  channel?: { name: string };
-}
-
-interface Limit {
-  channelId: string;
-  name: string;
-  service: string;
-  sent: number;
-  scheduled: number;
-  limit: number;
-}
+import RateLimitBanner from "./RateLimitBanner";
+import { useBufferData } from "@/hooks/useBufferData";
 
 interface PipelineStats {
   total_pipelines: number;
@@ -79,31 +53,25 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export default function AnalyticsDashboard() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [limits, setLimits] = useState<Limit[]>([]);
-  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { data, loading: bufferLoading } = useBufferData();
+  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(
+    null
+  );
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      fetch("/content-api/posts?limit=100").then((r) => r.json()),
-      fetch("/content-api/limits").then((r) => r.json()),
-      fetch("/content-api/stats").then((r) => r.json()),
-    ])
-      .then(([postsData, limitsData, statsData]) => {
-        if (postsData.error) throw new Error(postsData.error);
-        setPosts(postsData.posts || []);
-        setLimits(limitsData.limits || []);
-        setPipelineStats(statsData.error ? null : statsData);
-        setError("");
+    fetch("/content-api/stats")
+      .then((r) => r.json())
+      .then((d) => {
+        setPipelineStats(d.error ? null : d);
+        setStatsLoading(false);
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch(() => setStatsLoading(false));
   }, []);
 
-  // KPIs
+  const posts = data?.posts || [];
+  const limits = data?.limits || [];
+
   const totalPosts = posts.length;
   const sentPosts = posts.filter((p) => p.status === "sent").length;
   const scheduledPosts = posts.filter((p) => p.status === "scheduled").length;
@@ -113,7 +81,6 @@ export default function AnalyticsDashboard() {
       ? Math.round((sentPosts / (sentPosts + errorPosts)) * 100)
       : 0;
 
-  // Pie chart: posts by platform
   const platformData = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const post of posts) {
@@ -127,7 +94,6 @@ export default function AnalyticsDashboard() {
     }));
   }, [posts]);
 
-  // Bar chart: posts by status
   const statusData = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const post of posts) {
@@ -140,9 +106,14 @@ export default function AnalyticsDashboard() {
     }));
   }, [posts]);
 
-  // Line chart: posts by day (last 30 days)
   const timelineData = useMemo(() => {
-    const days: { date: string; total: number; tiktok: number; instagram: number; facebook: number }[] = [];
+    const days: {
+      date: string;
+      total: number;
+      tiktok: number;
+      instagram: number;
+      facebook: number;
+    }[] = [];
     const now = new Date();
     for (let i = 29; i >= 0; i--) {
       const d = subDays(now, i);
@@ -154,6 +125,7 @@ export default function AnalyticsDashboard() {
         facebook: 0,
       });
     }
+    const byDay = new Map(days.map((d, i) => [d.date, i]));
 
     for (const post of posts) {
       const postDate = post.sentAt
@@ -161,30 +133,19 @@ export default function AnalyticsDashboard() {
         : post.dueAt
         ? parseISO(post.dueAt)
         : parseISO(post.createdAt);
-
-      const dayIndex = days.findIndex(
-        (d) =>
-          isWithinInterval(postDate, {
-            start: startOfDay(subDays(now, 29 - days.indexOf(d))),
-            end: endOfDay(subDays(now, 29 - days.indexOf(d))),
-          }) ||
-          format(postDate, "dd/MM") === d.date
-      );
-
-      // Simpler approach: match by formatted date
-      const postDayStr = format(postDate, "dd/MM");
-      const dayEntry = days.find((d) => d.date === postDayStr);
-      if (dayEntry) {
-        dayEntry.total++;
-        const svc = post.channelService;
-        if (svc === "tiktok") dayEntry.tiktok++;
-        if (svc === "instagram") dayEntry.instagram++;
-        if (svc === "facebook") dayEntry.facebook++;
-      }
+      const key = format(postDate, "dd/MM");
+      const idx = byDay.get(key);
+      if (idx === undefined) continue;
+      days[idx].total++;
+      const svc = post.channelService;
+      if (svc === "tiktok") days[idx].tiktok++;
+      else if (svc === "instagram") days[idx].instagram++;
+      else if (svc === "facebook") days[idx].facebook++;
     }
-
     return days;
   }, [posts]);
+
+  const loading = bufferLoading && statsLoading && posts.length === 0;
 
   if (loading) {
     return (
@@ -194,17 +155,10 @@ export default function AnalyticsDashboard() {
     );
   }
 
-  if (error) {
-    return (
-      <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-red-400 text-sm">
-        {error}
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* KPI Cards */}
+      <RateLimitBanner snapshot={data} />
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <KPICard
           label="Total posts"
@@ -232,7 +186,6 @@ export default function AnalyticsDashboard() {
         />
       </div>
 
-      {/* Pipeline stats row */}
       {pipelineStats && (
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <KPICard
@@ -257,7 +210,7 @@ export default function AnalyticsDashboard() {
             label="Briefs"
             value={pipelineStats.total_briefs}
             icon={TrendingUp}
-            color="text-gold"
+            color="text-yellow-300"
           />
           <KPICard
             label="Pipelines"
@@ -268,97 +221,112 @@ export default function AnalyticsDashboard() {
         </div>
       )}
 
-      {/* Charts grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pie: by platform */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
           <h4 className="text-sm font-medium text-gray-400 mb-4">
             Posts por plataforma
           </h4>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={platformData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={4}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  {platformData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "8px",
-                    color: "#fff",
-                    fontSize: "12px",
-                  }}
-                  formatter={(value: any) => [`${value} posts`, "Cantidad"]}
-                />
-                <Legend
-                  formatter={(value: string) => (
-                    <span className="text-gray-400 capitalize">{value}</span>
-                  )}
-                />
-              </PieChart>
-            </ResponsiveContainer>
+            {platformData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-gray-500">
+                Sin datos
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={platformData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={4}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {platformData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1a1a1a",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      color: "#fff",
+                      fontSize: "12px",
+                    }}
+                    formatter={(value: any) => [`${value} posts`, "Cantidad"]}
+                  />
+                  <Legend
+                    formatter={(value: string) => (
+                      <span className="text-gray-400 capitalize">{value}</span>
+                    )}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
-        {/* Bar: by status */}
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
           <h4 className="text-sm font-medium text-gray-400 mb-4">
             Posts por estado
           </h4>
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={statusData}>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="rgba(255,255,255,0.05)"
-                />
-                <XAxis
-                  dataKey="name"
-                  tick={{ fill: "#9ca3af", fontSize: 11 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  tickFormatter={(v: string) =>
-                    ({ sent: "Pub", scheduled: "Prog", sending: "Env", error: "Err", draft: "Borr", needs_approval: "Pend" }[v] || v)
-                  }
-                />
-                <YAxis
-                  tick={{ fill: "#9ca3af", fontSize: 11 }}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                  allowDecimals={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#1a1a1a",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: "8px",
-                    color: "#fff",
-                    fontSize: "12px",
-                  }}
-                  formatter={(value: any) => [`${value}`, "Posts"]}
-                />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {statusData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            {statusData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-gray-500">
+                Sin datos
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={statusData}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.05)"
+                  />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: "#9ca3af", fontSize: 11 }}
+                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    tickFormatter={(v: string) =>
+                      ({
+                        sent: "Pub",
+                        scheduled: "Prog",
+                        sending: "Env",
+                        error: "Err",
+                        draft: "Borr",
+                        needs_approval: "Pend",
+                      }[v] || v)
+                    }
+                  />
+                  <YAxis
+                    tick={{ fill: "#9ca3af", fontSize: 11 }}
+                    axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1a1a1a",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      color: "#fff",
+                      fontSize: "12px",
+                    }}
+                    formatter={(value: any) => [`${value}`, "Posts"]}
+                  />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {statusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Timeline line chart */}
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
         <h4 className="text-sm font-medium text-gray-400 mb-4">
           Actividad últimos 30 días
@@ -421,7 +389,6 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
-      {/* Daily limits */}
       {limits.length > 0 && (
         <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
           <h4 className="text-sm font-medium text-gray-400 mb-4">

@@ -13,27 +13,49 @@ export async function GET() {
       .reverse();
 
     const pipelines = await Promise.all(
-      pipelineFiles.slice(0, 20).map(async (f) => {
-        const raw = await readFile(join(OUTPUT_DIR, f), "utf-8");
-        const data = JSON.parse(raw);
-        return {
-          filename: f,
-          started_at: data.started_at,
-          business_name: data.business_name,
-          stages: data.stages
-            ? Object.fromEntries(
-                Object.entries(data.stages).map(([k, v]: [string, any]) => [
-                  k,
-                  { status: v?.status },
-                ])
-              )
-            : {},
-          paperclip_issue_id: data.paperclip_issue_id,
-        };
+      pipelineFiles.slice(0, 30).map(async (f) => {
+        try {
+          const raw = await readFile(join(OUTPUT_DIR, f), "utf-8");
+          const data = JSON.parse(raw);
+
+          // Pass through compact stage summary that includes arrays so the UI
+          // can infer status when the `status` field is missing.
+          const stages: Record<string, any> = {};
+          for (const [k, v] of Object.entries(data.stages || {})) {
+            const stage = v as any;
+            stages[k] = {
+              status: stage?.status,
+              scripts: stage?.scripts?.length
+                ? new Array(stage.scripts.length)
+                : undefined,
+              produced: stage?.produced?.length
+                ? new Array(stage.produced.length)
+                : undefined,
+              uploaded: stage?.uploaded?.length
+                ? new Array(stage.uploaded.length)
+                : undefined,
+              published: stage?.published?.length
+                ? new Array(stage.published.length)
+                : undefined,
+            };
+          }
+
+          return {
+            filename: f,
+            started_at: data.started_at,
+            business_name: data.business_name,
+            stages,
+            paperclip_issue_id: data.paperclip_issue_id,
+          };
+        } catch {
+          return null;
+        }
       })
     );
 
-    return NextResponse.json({ pipelines });
+    return NextResponse.json({
+      pipelines: pipelines.filter(Boolean),
+    });
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to load pipelines" },
